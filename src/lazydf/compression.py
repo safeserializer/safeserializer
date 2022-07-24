@@ -122,9 +122,11 @@ def traversal_dec(dump):
             return deserialize_numpy(dump[5:])
         if header == b"pddf_":
             from pandas import DataFrame
+
             return DataFrame(deserialize_numpy(dump[5:]))
         if header == b"pdsr_":
             from pandas import Series
+
             return Series(deserialize_numpy(dump[5:]))
         if header == b"trav_":
             return traversal_dec(bson.loads(dump[5:])["_"])

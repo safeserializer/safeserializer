@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lazydf"
-version = "0.220724.0"
+version = "0.220724.2"
 description = "Safe and deterministic (when possible)-serializer to binary, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -26,6 +26,7 @@ ipython = "^7.27.0"
 pypi-server = "^0.4.8"
 black = "^21.9b0"
 flake8 = "^4.0.1"
+click = "8.0.4"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

@@ -150,9 +150,11 @@ def traversal_dec(dump):
             return deserialize_numpy(dump[5:])
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
+
             return DataFrame(deserialize_numpy(dump[5:]))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
+
             return Series(deserialize_numpy(dump[5:]))
         if header == b&#34;trav_&#34;:
             return traversal_dec(bson.loads(dump[5:])[&#34;_&#34;])
@@ -699,9 +701,11 @@ def deserialize_json(blob):
             return deserialize_numpy(dump[5:])
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
+
             return DataFrame(deserialize_numpy(dump[5:]))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
+
             return Series(deserialize_numpy(dump[5:]))
         if header == b&#34;trav_&#34;:
             return traversal_dec(bson.loads(dump[5:])[&#34;_&#34;])
