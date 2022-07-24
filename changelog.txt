@@ -1,0 +1,1 @@
+Move compression module from hoshmap

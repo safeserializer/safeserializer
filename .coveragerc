@@ -1,0 +1,16 @@
+[run]
+omit =
+    # abstract classes
+    #*/abs/*
+    
+    # examples
+    */examples/*
+
+    venv
+    .venv
+
+[report]
+exclude_lines =
+    @abstractmethod
+    @abc.abstractmethod
+    pragma: no cover
