@@ -25,8 +25,9 @@ from importlib import import_module
 
 import bson
 import lz4.frame as lz4
-from bson import UnknownSerializerError
-from orjson import OPT_SORT_KEYS, dumps, orjson
+from bson.codec import UnknownSerializerError
+from bson.json_util import dumps
+from orjson import OPT_SORT_KEYS, orjson
 
 
 def topickle(obj, ensure_determinism=True):
@@ -71,7 +72,7 @@ def traversal_enc(obj, ensure_determinism=True):
     except TypeError as e:
         pass
     try:
-        return b"bson_" + bson.dumps({"_": obj})
+        return b"bson_" + bson.encode({"_": obj})
     except UnknownSerializerError as e:
         pass
     if str(obj.__class__) == "<class 'numpy.ndarray'>":
@@ -84,7 +85,7 @@ def traversal_enc(obj, ensure_determinism=True):
         lst_of_bins = []
         for o in obj:
             lst_of_bins.append(traversal_enc(o, ensure_determinism))
-        return b"trav_" + bson.dumps({"_": lst_of_bins})
+        return b"trav_" + bson.encode({"_": lst_of_bins})
     raise Exception(f"Cannot pack {type(obj)}.")
 
 
@@ -117,7 +118,7 @@ def traversal_dec(dump):
         if header == b"json_":
             return orjson.loads(dump[5:])
         if header == b"bson_":
-            return bson.loads(dump[5:])["_"]
+            return bson.decode(dump[5:])["_"]
         if header == b"nmpy_":
             return deserialize_numpy(dump[5:])
         if header == b"pddf_":
@@ -129,7 +130,7 @@ def traversal_dec(dump):
 
             return Series(deserialize_numpy(dump[5:]))
         if header == b"trav_":
-            return traversal_dec(bson.loads(dump[5:])["_"])
+            return traversal_dec(bson.decode(dump[5:])["_"])
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -164,22 +165,24 @@ def serialize_numpy(obj):
         rest_of_header = f"§{dims}§{dtype}§".encode() + integers2bytes(obj.shape)
         rest_of_header_len = str(len(rest_of_header)).encode()
         header = rest_of_header_len + rest_of_header
-        return lz4.compress(header + obj.data)
+        # return header + lz4.compress(ascontiguousarray(obj).data)
+        return header + obj.data.tobytes()
     raise Exception(f"Cannot handle this type {type(obj)}, check its shape or dtype")
 
 
 def deserialize_numpy(blob):
     import numpy
 
-    blob = lz4.decompress(blob)
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
+
     dump = memoryview(blob)[header_len:]
+    # dump = lz4.decompress(dump)
     m = numpy.frombuffer(dump, dtype=dtype)
     if dims > 1:
         m = numpy.reshape(m, newshape=shape)
@@ -193,7 +196,7 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
+    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
 
 
 ########################################################################################
