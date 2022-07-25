@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lazydf"
-version = "0.220724.5"
+version = "0.220725.0"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -10,7 +10,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.10,<4.0"
 lz4 = "^4.0.1"
 bson = "^0.5.10"
 orjson = "^3.7.8"
