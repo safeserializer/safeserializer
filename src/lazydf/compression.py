@@ -24,13 +24,13 @@ import pickle
 from importlib import import_module
 
 import bson
-import lz4.frame as lz4
 from bson import InvalidDocument
 from bson.codec import UnknownSerializerError
 from orjson import OPT_SORT_KEYS, orjson, dumps
 
 
 def topickle(obj, ensure_determinism=True):
+    import lz4.frame as lz4
     try:
         try:
             dump = pickle.dumps(obj, protocol=5)
@@ -54,6 +54,7 @@ def topickle(obj, ensure_determinism=True):
 
 
 def frompickle(blob):
+    import lz4.frame as lz4
     prefix = blob[:5]
     blob = blob[5:]
     if prefix == b"pckl_":
@@ -68,24 +69,24 @@ def traversal_enc(obj, ensure_determinism=True):
     if isinstance(obj, bytes):
         return obj
     try:
-        return b"json_" + orjson.dumps(obj)
+        return b"00json_" + orjson.dumps(obj)
     except TypeError as e:
         pass
     try:
-        return b"bson_" + bson.encode({"_": obj})
+        return b"00bson_" + bson.encode({"_": obj})
     except (UnknownSerializerError, InvalidDocument) as e:
         pass
     if str(obj.__class__) == "<class 'numpy.ndarray'>":
-        return b"nmpy_" + serialize_numpy(obj)
+        return b"00nmpy_" + serialize_numpy(obj)
     if str(obj.__class__) == "<class 'pandas.core.frame.DataFrame'>":
-        return b"pddf_" + serialize_numpy(obj.to_numpy())
+        return b"00pddf_" + serialize_numpy(obj.to_numpy())
     if str(obj.__class__) == "<class 'pandas.core.series.Series'>":
-        return b"pdsr_" + serialize_numpy(obj.to_numpy())
+        return b"00pdsr_" + serialize_numpy(obj.to_numpy())
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
             lst_of_bins.append(traversal_enc(o, ensure_determinism))
-        return b"trav_" + bson.encode({"_": lst_of_bins})
+        return b"00trav_" + bson.encode({"_": lst_of_bins})
     raise Exception(f"Cannot pack {type(obj)}.")
 
 
@@ -109,28 +110,31 @@ def pack(obj, ensure_determinism=True, compressed=True):
     1  4.0  5.000000
     """
     dump = traversal_enc(obj, ensure_determinism)
-    return lz4.compress(dump) if compressed else dump
+    if compressed:
+        import lz4.frame as lz4
+        return lz4.compress(dump)
+    return dump
 
 
 def traversal_dec(dump):
     if isinstance(dump, bytes):
-        header = dump[:5]
+        header = dump[2:7]
         if header == b"json_":
-            return orjson.loads(dump[5:])
+            return orjson.loads(dump[7:])
         if header == b"bson_":
-            return bson.decode(dump[5:])["_"]
+            return bson.decode(dump[7:])["_"]
         if header == b"nmpy_":
-            return deserialize_numpy(dump[5:])
+            return deserialize_numpy(dump[7:])
         if header == b"pddf_":
             from pandas import DataFrame
 
-            return DataFrame(deserialize_numpy(dump[5:]))
+            return DataFrame(deserialize_numpy(dump[7:]))
         if header == b"pdsr_":
             from pandas import Series
 
-            return Series(deserialize_numpy(dump[5:]))
+            return Series(deserialize_numpy(dump[7:]))
         if header == b"trav_":
-            return traversal_dec(bson.decode(dump[5:])["_"])
+            return traversal_dec(bson.decode(dump[7:])["_"])
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -148,7 +152,11 @@ def traversal_dec(dump):
 
 
 def unpack(blob, compressed=True):
-    dump = lz4.decompress(blob) if compressed else blob
+    if compressed:
+        import lz4.frame as lz4
+        dump = lz4.decompress(blob)
+    else:
+        dump = blob
     return traversal_dec(dump)
 
 
@@ -176,7 +184,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -196,7 +204,7 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
+    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
 
 
 ########################################################################################
