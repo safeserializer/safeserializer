@@ -25,9 +25,9 @@ from importlib import import_module
 
 import bson
 import lz4.frame as lz4
+from bson import InvalidDocument
 from bson.codec import UnknownSerializerError
-from bson.json_util import dumps
-from orjson import OPT_SORT_KEYS, orjson
+from orjson import OPT_SORT_KEYS, orjson, dumps
 
 
 def topickle(obj, ensure_determinism=True):
@@ -73,7 +73,7 @@ def traversal_enc(obj, ensure_determinism=True):
         pass
     try:
         return b"bson_" + bson.encode({"_": obj})
-    except UnknownSerializerError as e:
+    except (UnknownSerializerError, InvalidDocument) as e:
         pass
     if str(obj.__class__) == "<class 'numpy.ndarray'>":
         return b"nmpy_" + serialize_numpy(obj)
@@ -176,7 +176,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -196,7 +196,7 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
+    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
 
 
 ########################################################################################

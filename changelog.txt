@@ -1,1 +1,2 @@
+Update for new bson API
 Move compression module from hoshmap
