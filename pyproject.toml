@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lazydf"
-version = "0.220725.0"
+version = "0.220725.1"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -11,11 +11,8 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.10,<4.0"
-lz4 = "^4.0.1"
-bson = "^0.5.10"
 orjson = "^3.7.8"
-numpy = "^1.23.1"
-pandas = "^1.4.3"
+pymongo = "^4.2.0"  # Needed because it includes bson
 
 [tool.poetry.dev-dependencies]
 pdoc3 = "^0.10.0"
@@ -26,6 +23,10 @@ ipython = "^7.27.0"
 black = "^21.9b0"
 flake8 = "^4.0.1"
 click = "8.0.4"
+lz4 = "^4.0.2"
+pymongo = "^4.2.0"
+numpy = "^1.23.1"
+pandas = "^1.4.3"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

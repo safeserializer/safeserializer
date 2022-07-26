@@ -1,15 +1,23 @@
-![test](https://github.com/davips/lazydf/workflows/test/badge.svg)
-[![codecov](https://codecov.io/gh/davips/lazydf/branch/main/graph/badge.svg)](https://codecov.io/gh/davips/lazydf)
+![test](https://github.com/lazydf/lazydf/workflows/test/badge.svg)
+[![codecov](https://codecov.io/gh/lazydf/lazydf/branch/main/graph/badge.svg)](https://codecov.io/gh/lazydf/lazydf)
 <a href="https://pypi.org/project/lazydf">
-<img src="https://img.shields.io/github/v/release/davips/lazydf?display_name=tag&sort=semver&color=blue" alt="github">
+<img src="https://img.shields.io/github/v/release/lazydf/lazydf?display_name=tag&sort=semver&color=blue" alt="github">
 </a>
-![Python version](https://img.shields.io/badge/python-3.8%20%7C%203.9-blue.svg)
-[![license: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+![Python version](https://img.shields.io/badge/python-3.10-blue.svg)
+[![license: GPL v3](https://img.shields.io/badge/License-GPLv3_%28ask_for_options%29-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![API documentation](https://img.shields.io/badge/doc-API%20%28auto%29-a0a0a0.svg)](https://lazydf.github.io/lazydf)
 
-[![API documentation](https://img.shields.io/badge/doc-API%20%28auto%29-a0a0a0.svg)](https://davips.github.io/lazydf)
 
+# lazydf - Serialization of nested objects to binary format 
+Principle: Start from the simplest and safest possible and try to be fast.
+* try orjson
+  * `dict`, `str`, `int`, etc
+* try bson
+  * standard types accepted by mongodb
+* serialize as numpy
+  * ndarray, pandas dataframe/series
 
-# lazydf - Serialization to binary (deterministic and safe  - when possible) 
+Non-deterministic and unsafe modes (pickle) are planned for the near future. 
  
 
 
@@ -26,7 +34,7 @@ pip install lazydf
 
 ### from source
 ```bash
-git clone https://github.com/davips/lazydf
+git clone https://github.com/lazydf/lazydf
 cd lazydf
 poetry install
 ```

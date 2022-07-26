@@ -1,2 +1,3 @@
-Update for new bson API
-Move compression module from hoshmap
+Reduce dependencies
+Hide non-mandatory imports: lz4
+Add version prefix for future changes in compression

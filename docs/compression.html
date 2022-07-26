@@ -52,13 +52,13 @@ import pickle
 from importlib import import_module
 
 import bson
-import lz4.frame as lz4
 from bson import InvalidDocument
-from bson.codec import UnknownSerializerError
 from orjson import OPT_SORT_KEYS, orjson, dumps
 
 
 def topickle(obj, ensure_determinism=True):
+    import lz4.frame as lz4
+
     try:
         try:
             dump = pickle.dumps(obj, protocol=5)
@@ -82,6 +82,8 @@ def topickle(obj, ensure_determinism=True):
 
 
 def frompickle(blob):
+    import lz4.frame as lz4
+
     prefix = blob[:5]
     blob = blob[5:]
     if prefix == b&#34;pckl_&#34;:
@@ -96,24 +98,24 @@ def traversal_enc(obj, ensure_determinism=True):
     if isinstance(obj, bytes):
         return obj
     try:
-        return b&#34;json_&#34; + orjson.dumps(obj)
+        return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
         pass
     try:
-        return b&#34;bson_&#34; + bson.encode({&#34;_&#34;: obj})
-    except (UnknownSerializerError, InvalidDocument) as e:
+        return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
+    except InvalidDocument as e:
         pass
     if str(obj.__class__) == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        return b&#34;nmpy_&#34; + serialize_numpy(obj)
+        return b&#34;00nmpy_&#34; + serialize_numpy(obj)
     if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return b&#34;pddf_&#34; + serialize_numpy(obj.to_numpy())
+        return b&#34;00pddf_&#34; + serialize_numpy(obj.to_numpy())
     if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return b&#34;pdsr_&#34; + serialize_numpy(obj.to_numpy())
+        return b&#34;00pdsr_&#34; + serialize_numpy(obj.to_numpy())
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
             lst_of_bins.append(traversal_enc(o, ensure_determinism))
-        return b&#34;trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
+        return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
     raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)
 
 
@@ -137,28 +139,32 @@ def pack(obj, ensure_determinism=True, compressed=True):
     1  4.0  5.000000
     &#34;&#34;&#34;
     dump = traversal_enc(obj, ensure_determinism)
-    return lz4.compress(dump) if compressed else dump
+    if compressed:
+        import lz4.frame as lz4
+
+        return lz4.compress(dump)
+    return dump
 
 
 def traversal_dec(dump):
     if isinstance(dump, bytes):
-        header = dump[:5]
+        header = dump[2:7]
         if header == b&#34;json_&#34;:
-            return orjson.loads(dump[5:])
+            return orjson.loads(dump[7:])
         if header == b&#34;bson_&#34;:
-            return bson.decode(dump[5:])[&#34;_&#34;]
+            return bson.decode(dump[7:])[&#34;_&#34;]
         if header == b&#34;nmpy_&#34;:
-            return deserialize_numpy(dump[5:])
+            return deserialize_numpy(dump[7:])
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
 
-            return DataFrame(deserialize_numpy(dump[5:]))
+            return DataFrame(deserialize_numpy(dump[7:]))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(dump[5:]))
+            return Series(deserialize_numpy(dump[7:]))
         if header == b&#34;trav_&#34;:
-            return traversal_dec(bson.decode(dump[5:])[&#34;_&#34;])
+            return traversal_dec(bson.decode(dump[7:])[&#34;_&#34;])
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -176,7 +182,12 @@ def traversal_dec(dump):
 
 
 def unpack(blob, compressed=True):
-    dump = lz4.decompress(blob) if compressed else blob
+    if compressed:
+        import lz4.frame as lz4
+
+        dump = lz4.decompress(blob)
+    else:
+        dump = blob
     return traversal_dec(dump)
 
 
@@ -460,6 +471,8 @@ def deserialize_json(blob):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def frompickle(blob):
+    import lz4.frame as lz4
+
     prefix = blob[:5]
     blob = blob[5:]
     if prefix == b&#34;pckl_&#34;:
@@ -573,7 +586,11 @@ def deserialize_json(blob):
     1  4.0  5.000000
     &#34;&#34;&#34;
     dump = traversal_enc(obj, ensure_determinism)
-    return lz4.compress(dump) if compressed else dump</code></pre>
+    if compressed:
+        import lz4.frame as lz4
+
+        return lz4.compress(dump)
+    return dump</code></pre>
 </details>
 </dd>
 <dt id="lazydf.compression.serialize_json"><code class="name flex">
@@ -664,6 +681,8 @@ def deserialize_json(blob):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def topickle(obj, ensure_determinism=True):
+    import lz4.frame as lz4
+
     try:
         try:
             dump = pickle.dumps(obj, protocol=5)
@@ -697,23 +716,23 @@ def deserialize_json(blob):
 </summary>
 <pre><code class="python">def traversal_dec(dump):
     if isinstance(dump, bytes):
-        header = dump[:5]
+        header = dump[2:7]
         if header == b&#34;json_&#34;:
-            return orjson.loads(dump[5:])
+            return orjson.loads(dump[7:])
         if header == b&#34;bson_&#34;:
-            return bson.decode(dump[5:])[&#34;_&#34;]
+            return bson.decode(dump[7:])[&#34;_&#34;]
         if header == b&#34;nmpy_&#34;:
-            return deserialize_numpy(dump[5:])
+            return deserialize_numpy(dump[7:])
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
 
-            return DataFrame(deserialize_numpy(dump[5:]))
+            return DataFrame(deserialize_numpy(dump[7:]))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(dump[5:]))
+            return Series(deserialize_numpy(dump[7:]))
         if header == b&#34;trav_&#34;:
-            return traversal_dec(bson.decode(dump[5:])[&#34;_&#34;])
+            return traversal_dec(bson.decode(dump[7:])[&#34;_&#34;])
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -743,24 +762,24 @@ def deserialize_json(blob):
     if isinstance(obj, bytes):
         return obj
     try:
-        return b&#34;json_&#34; + orjson.dumps(obj)
+        return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
         pass
     try:
-        return b&#34;bson_&#34; + bson.encode({&#34;_&#34;: obj})
-    except (UnknownSerializerError, InvalidDocument) as e:
+        return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
+    except InvalidDocument as e:
         pass
     if str(obj.__class__) == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        return b&#34;nmpy_&#34; + serialize_numpy(obj)
+        return b&#34;00nmpy_&#34; + serialize_numpy(obj)
     if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return b&#34;pddf_&#34; + serialize_numpy(obj.to_numpy())
+        return b&#34;00pddf_&#34; + serialize_numpy(obj.to_numpy())
     if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return b&#34;pdsr_&#34; + serialize_numpy(obj.to_numpy())
+        return b&#34;00pdsr_&#34; + serialize_numpy(obj.to_numpy())
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
             lst_of_bins.append(traversal_enc(o, ensure_determinism))
-        return b&#34;trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
+        return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
     raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)</code></pre>
 </details>
 </dd>
@@ -774,7 +793,12 @@ def deserialize_json(blob):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def unpack(blob, compressed=True):
-    dump = lz4.decompress(blob) if compressed else blob
+    if compressed:
+        import lz4.frame as lz4
+
+        dump = lz4.decompress(blob)
+    else:
+        dump = blob
     return traversal_dec(dump)</code></pre>
 </details>
 </dd>
