@@ -9,6 +9,8 @@
 
 
 # lazydf - Serialization of nested objects to binary format 
+An alternative to pickle, but may use pickle if safety is not needed.
+
 Principle: Start from the simplest and safest possible and try to be fast.
 * try orjson
   * `dict`, `str`, `int`, etc
