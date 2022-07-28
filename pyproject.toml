@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "lazydf"
-version = "0.220725.3"
+version = "0.220725.4"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -24,7 +24,6 @@ black = "^21.9b0"
 flake8 = "^4.0.1"
 click = "8.0.4"
 lz4 = "^4.0.2"
-pymongo = "^4.2.0"
 numpy = "^1.23.1"
 pandas = "^1.4.3"
 
