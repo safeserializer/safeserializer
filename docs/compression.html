@@ -52,27 +52,26 @@ import pickle
 from importlib import import_module
 
 import bson
+import numpy as np
 from bson import InvalidDocument
 from orjson import OPT_SORT_KEYS, orjson, dumps
 
 
-def topickle(obj, ensure_determinism=True):
-    import lz4.frame as lz4
-
+def topickle(obj, ensure_determinism):
     try:
         try:
+            prefix = b&#34;05pckl_&#34;
             dump = pickle.dumps(obj, protocol=5)
-            prefix = b&#34;pckl_&#34;
         except Exception as e:
             if ensure_determinism:  # pragma: no cover
                 print(e)
                 raise NondeterminismException(&#34;Cannot serialize deterministically.&#34;)
             import dill
 
+            prefix = b&#34;05dill_&#34;
             dump = dill.dumps(obj, protocol=5)
-            prefix = b&#34;dill_&#34;
 
-        blob = prefix + lz4.compress(dump)
+        blob = prefix + dump
         return blob
     except KeyError as e:  # pragma: no cover
         if str(e) == &#34;&#39;__getstate__&#39;&#34;:  # pragma: no cover
@@ -82,19 +81,20 @@ def topickle(obj, ensure_determinism=True):
 
 
 def frompickle(blob):
-    import lz4.frame as lz4
-
-    prefix = blob[:5]
-    blob = blob[5:]
-    if prefix == b&#34;pckl_&#34;:
-        return pickle.loads(lz4.decompress(blob))
-    elif prefix == b&#34;dill_&#34;:
+    prefix = blob[:7]
+    blob = blob[7:]
+    if prefix == b&#34;05pckl_&#34;:
+        return pickle.loads(blob)
+    elif prefix == b&#34;05dill_&#34;:
         import dill
 
-        return dill.loads(lz4.decompress(blob))
+        return dill.loads(blob)
 
 
-def traversal_enc(obj, ensure_determinism=True):
+m = {&#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;: b&#34;00pddf_&#34;, &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;: b&#34;00pdsr_&#34;}
+
+
+def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     if isinstance(obj, bytes):
         return obj
     try:
@@ -105,66 +105,43 @@ def traversal_enc(obj, ensure_determinism=True):
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
         pass
-    if str(obj.__class__) == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        return b&#34;00nmpy_&#34; + serialize_numpy(obj)
-    if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return b&#34;00pddf_&#34; + serialize_numpy(obj.to_numpy())
-    if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return b&#34;00pdsr_&#34; + serialize_numpy(obj.to_numpy())
+    klass = str(obj.__class__)
+    if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
+        return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
+    if klass in [&#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;, &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;]:
+        return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback, m[klass])
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
-            lst_of_bins.append(traversal_enc(o, ensure_determinism))
+            lst_of_bins.append(traversal_enc(o, ensure_determinism, unsafe_fallback))
         return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
+    if unsafe_fallback:
+        return topickle(obj, ensure_determinism)
     raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)
-
-
-def pack(obj, ensure_determinism=True, compressed=True):
-    r&#34;&#34;&#34;
-    &gt;&gt;&gt; import numpy as np
-    &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&#34;x&#34;: b&#34;dsa&#34;}], [b&#34;asd&#34;, 5]]
-    &gt;&gt;&gt; blob = pack(d)
-    &gt;&gt;&gt; unpack(blob)
-    [[array([[1.        , 0.66666667],
-           [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
-    &gt;&gt;&gt; blob = pack(d, compressed=False)
-    &gt;&gt;&gt; unpack(blob, compressed=False)
-    [[array([[1.        , 0.66666667],
-           [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
-    &gt;&gt;&gt; import pandas as pd
-    &gt;&gt;&gt; df = pd.DataFrame(np.array([[1, 2/3], [4, 5]]))
-    &gt;&gt;&gt; unpack(pack(df))
-         0         1
-    0  1.0  0.666667
-    1  4.0  5.000000
-    &#34;&#34;&#34;
-    dump = traversal_enc(obj, ensure_determinism)
-    if compressed:
-        import lz4.frame as lz4
-
-        return lz4.compress(dump)
-    return dump
 
 
 def traversal_dec(dump):
     if isinstance(dump, bytes):
         header = dump[2:7]
+        blob = dump[7:]
         if header == b&#34;json_&#34;:
-            return orjson.loads(dump[7:])
+            return orjson.loads(blob)
         if header == b&#34;bson_&#34;:
-            return bson.decode(dump[7:])[&#34;_&#34;]
+            return bson.decode(blob)[&#34;_&#34;]
         if header == b&#34;nmpy_&#34;:
-            return deserialize_numpy(dump[7:])
+            return deserialize_numpy(blob)
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
 
-            return DataFrame(deserialize_numpy(dump[7:]))
+            return DataFrame(deserialize_numpy(blob))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(dump[7:]))
+            return Series(deserialize_numpy(blob))
         if header == b&#34;trav_&#34;:
-            return traversal_dec(bson.decode(dump[7:])[&#34;_&#34;])
+            return traversal_dec(bson.decode(blob)[&#34;_&#34;])
+        if header in [b&#34;pckl_&#34;, b&#34;dill_&#34;]:
+            return frompickle(dump)
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -181,32 +158,62 @@ def traversal_dec(dump):
     raise Exception(f&#34;Cannot unpack {type(dump)}.&#34;)
 
 
-def unpack(blob, compressed=True):
+def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
+    r&#34;&#34;&#34;
+    &gt;&gt;&gt; import numpy as np
+    &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&#34;x&#34;: b&#34;dsa&#34;}], [b&#34;asd&#34;, 5]]
+    &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; unpack(blob)
+    [[array([[1.        , 0.66666667],
+           [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
+    &gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; unpack(blob)
+    [[array([[1.        , 0.66666667],
+           [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
+    &gt;&gt;&gt; import pandas as pd
+    &gt;&gt;&gt; df = pd.DataFrame(np.array([[1, 2/3], [4, 5]]))
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
+         0         1
+    0  1.0  0.666667
+    1  4.0  5.000000
+    &#34;&#34;&#34;
+    dump = traversal_enc(obj, ensure_determinism, unsafe_fallback)
     if compressed:
         import lz4.frame as lz4
 
-        dump = lz4.decompress(blob)
-    else:
-        dump = blob
-    return traversal_dec(dump)
+        return b&#34;00lz4__&#34; + lz4.compress(dump)
+    return dump
+
+
+def unpack(blob):
+    if blob[:7] == b&#34;00lz4__&#34;:
+        import lz4.frame as lz4
+
+        blob = lz4.decompress(blob[7:])
+    return traversal_dec(blob)
 
 
 class NondeterminismException(Exception):
     pass
 
 
-def serialize_numpy(obj):
+def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
     import numpy
 
     if isinstance(obj, numpy.ndarray):
+        if obj.dtype in [np.dtype(object)]:
+            if unsafe_fallback:
+                return topickle(obj, ensure_determinism)
+            raise Exception(f&#34;Cannot handle this ndarray dtype: &#39;{np.dtype(object)}&#39;&#34;)
+
         dims = str(len(obj.shape))
         dtype = str(obj.dtype)
         rest_of_header = f&#34;§{dims}§{dtype}§&#34;.encode() + integers2bytes(obj.shape)
         rest_of_header_len = str(len(rest_of_header)).encode()
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
-        return header + obj.data.tobytes()
-    raise Exception(f&#34;Cannot handle this type {type(obj)}, check its shape or dtype&#34;)
+        return prefix + header + obj.data.tobytes()
+    raise Exception(f&#34;Cannot handle this type &#39;{type(obj)}&#39;, check its shape or dtype&#34;)
 
 
 def deserialize_numpy(blob):
@@ -244,115 +251,115 @@ def bytes2integers(bytes_content: bytes, n=4):
 ########################################################################################
 
 
-def import_dependence(dep):
-    try:
-        return import_module(dep)
-    except ImportError as e:
-        raise Exception(f&#34;Missing {dep} library. Need a complete install\n&#34; &#34;pip install -U lazydf[full]&#34;)
+# def import_dependence(dep):
+#     try:
+#         return import_module(dep)
+#     except ImportError as e:
+#         raise Exception(f&#34;Missing {dep} library. Need a complete install\n&#34; &#34;pip install -U lazydf[full]&#34;)
 
 
-def custom_orjson_encoder(obj):
-    # E.g., pandas dataframes.
-    typ = str(type(obj))
-    if typ == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return obj.to_numpy()
-    if typ == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return obj.to_numpy()
-    # if hasattr(obj, &#39;to_json&#39;):
-    #     # REMINDER: default_handler=str is to avoid infinite recursion, e.g., on iris.arff
-    #     txt = obj.to_json(force_ascii=False, default_handler=str)
-    #     return {&#34;_type_orjson&#34;: str(type(obj)), &#34;_obj.to_json()&#34;: txt}
-
-    # Numpy objects generic type and ndarray, keeping dtype.
-    if typ == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        print(typ)
-        try:
-            return serialize_numpy(obj)
-        except Exception as e:
-            print(e)
-            exit()
-
-    # try:
-    #     import numpy
-    #     if isinstance(obj, numpy.generic):
-    #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.asscalar(obj)&#34;: numpy.asscalar(obj)}
-    #     if isinstance(obj, numpy.ndarray):
-    #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.ndarray.tolist()&#34;: obj.tolist()}
-    # except ImportError as e:
-    #     pass
-
-    if isinstance(obj, bytes):
-        return obj.decode()  # nem qq byte vira string!
-    raise TypeError
-
-
-def json_object_hook_decoder(dic):
-    if &#34;_type_orjson&#34; in dic:
-        if &#34;_obj.to_json()&#34; in dic:
-            if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-                m = import_dependence(&#34;pandas&#34;)
-                return m.read_json(dic[&#34;_obj.to_json()&#34;])  # , default_handler=str)
-            if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-                m = import_dependence(&#34;pandas&#34;)
-                # default_handler=callable
-                return m.read_json(dic[&#34;_obj.to_json()&#34;], typ=dic[&#34;_type_orjson&#34;])
-            else:  # pragma: no cover
-                raise Exception(f&#34;Cannot desserialize object of type &#39;{dic[&#39;_type_orjson&#39;]}&#39;&#34;)
-        if (c := &#34;_numpy.asscalar(obj)&#34;) in dic or (c := &#34;_numpy.ndarray.tolist()&#34;) in dic:
-            m = import_dependence(&#34;numpy&#34;)
-            dtype = &#34;str&#34; if len(dic[&#34;_type_orjson&#34;]) &gt; 10 else dic[&#34;_type_orjson&#34;]
-            return m.array(dic[c], dtype=dtype)
-    return dic
+# def custom_orjson_encoder(obj):
+#     # E.g., pandas dataframes.
+#     typ = str(type(obj))
+#     if typ == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
+#         return obj.to_numpy()
+#     if typ == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
+#         return obj.to_numpy()
+#     # if hasattr(obj, &#39;to_json&#39;):
+#     #     # REMINDER: default_handler=str is to avoid infinite recursion, e.g., on iris.arff
+#     #     txt = obj.to_json(force_ascii=False, default_handler=str)
+#     #     return {&#34;_type_orjson&#34;: str(type(obj)), &#34;_obj.to_json()&#34;: txt}
+#
+#     # Numpy objects generic type and ndarray, keeping dtype.
+#     if typ == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
+#         print(typ)
+#         try:
+#             return serialize_numpy(obj,ensure_determinism,unsafe_fallback) is None ???
+#         except Exception as e:
+#             print(e)
+#             exit()
+#
+#     # try:
+#     #     import numpy
+#     #     if isinstance(obj, numpy.generic):
+#     #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.asscalar(obj)&#34;: numpy.asscalar(obj)}
+#     #     if isinstance(obj, numpy.ndarray):
+#     #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.ndarray.tolist()&#34;: obj.tolist()}
+#     # except ImportError as e:
+#     #     pass
+#
+#     if isinstance(obj, bytes):
+#         return obj.decode()  # nem qq byte vira string!
+#     raise TypeError
 
 
-def serialize_json(obj):
-    # r&#34;&#34;&#34;
-    # &gt;&gt;&gt; import numpy as np
-    # &gt;&gt;&gt; import math
-    # &gt;&gt;&gt; a = np.array([[1/3, 5/4], [1.3**6, &#34;text&#34;]])
-    # &gt;&gt;&gt; a
-    # array([[&#39;0.3333333333333333&#39;, &#39;1.25&#39;],
-    #        [&#39;4.826809000000001&#39;, &#39;text&#39;]], dtype=&#39;&lt;U32&#39;)
-    # &gt;&gt;&gt; b = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int64)
-    # &gt;&gt;&gt; b
-    # array([[0, 1],
-    #        [4, 4]])
-    # &gt;&gt;&gt; c = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int8)
-    # &gt;&gt;&gt; c
-    # array([[0, 1],
-    #        [4, 4]], dtype=int8)
-    # &gt;&gt;&gt; serialize_json([math.inf, a, b, c])
-    # b&#39;[null,{&#34;_numpy.ndarray.tolist()&#34;:[[&#34;0.3333333333333333&#34;,&#34;1.25&#34;],[&#34;4.826809000000001&#34;,&#34;text&#34;]],&#34;_type_orjson&#34;:&#34;&lt;U32&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int64&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int8&#34;}]&#39;
-    # &gt;&gt;&gt; import pandas as pd
-    # &gt;&gt;&gt; df = pd.DataFrame(
-    # ...     [[1/3, 5/4], [1.3**54, &#34;text&#34;]],
-    # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;],
-    # ...     columns=[&#34;col 1&#34;, &#34;col 2&#34;],
-    # ... )
-    # &gt;&gt;&gt; df
-    #               col 1 col 2
-    # row 1  3.333333e-01  1.25
-    # row 2  1.422136e+06  text
-    # &gt;&gt;&gt; serialize_json(df)
-    # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;col 1\\&#34;:{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1422135.6537506874},\\&#34;col 2\\&#34;:{\\&#34;row 1\\&#34;:1.25,\\&#34;row 2\\&#34;:\\&#34;text\\&#34;}}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.frame.DataFrame\&#39;&gt;&#34;}&#39;
-    # &gt;&gt;&gt; s = pd.Series(
-    # ...     [1/3, 5/4, (1.3)**54, &#34;text&#34;],
-    # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;, &#34;row 3&#34;, &#34;row 4&#34;],
-    # ... )
-    # &gt;&gt;&gt; s
-    # row 1          0.333333
-    # row 2              1.25
-    # row 3    1422135.653751
-    # row 4              text
-    # dtype: object
-    # &gt;&gt;&gt; serialize_json(s)
-    # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1.25,\\&#34;row 3\\&#34;:1422135.6537506874,\\&#34;row 4\\&#34;:\\&#34;text\\&#34;}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.series.Series\&#39;&gt;&#34;}&#39;
-    # &#34;&#34;&#34;
-    return dumps(obj, default=custom_orjson_encoder, option=OPT_SORT_KEYS)
+# def json_object_hook_decoder(dic):
+#     if &#34;_type_orjson&#34; in dic:
+#         if &#34;_obj.to_json()&#34; in dic:
+#             if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
+#                 m = import_dependence(&#34;pandas&#34;)
+#                 return m.read_json(dic[&#34;_obj.to_json()&#34;])  # , default_handler=str)
+#             if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
+#                 m = import_dependence(&#34;pandas&#34;)
+#                 # default_handler=callable
+#                 return m.read_json(dic[&#34;_obj.to_json()&#34;], typ=dic[&#34;_type_orjson&#34;])
+#             else:  # pragma: no cover
+#                 raise Exception(f&#34;Cannot desserialize object of type &#39;{dic[&#39;_type_orjson&#39;]}&#39;&#34;)
+#         if (c := &#34;_numpy.asscalar(obj)&#34;) in dic or (c := &#34;_numpy.ndarray.tolist()&#34;) in dic:
+#             m = import_dependence(&#34;numpy&#34;)
+#             dtype = &#34;str&#34; if len(dic[&#34;_type_orjson&#34;]) &gt; 10 else dic[&#34;_type_orjson&#34;]
+#             return m.array(dic[c], dtype=dtype)
+#     return dic
 
 
-def deserialize_json(blob):
-    return json.loads(blob, object_hook=json_object_hook_decoder)</code></pre>
+# def serialize_json(obj):
+#     # r&#34;&#34;&#34;
+#     # &gt;&gt;&gt; import numpy as np
+#     # &gt;&gt;&gt; import math
+#     # &gt;&gt;&gt; a = np.array([[1/3, 5/4], [1.3**6, &#34;text&#34;]])
+#     # &gt;&gt;&gt; a
+#     # array([[&#39;0.3333333333333333&#39;, &#39;1.25&#39;],
+#     #        [&#39;4.826809000000001&#39;, &#39;text&#39;]], dtype=&#39;&lt;U32&#39;)
+#     # &gt;&gt;&gt; b = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int64)
+#     # &gt;&gt;&gt; b
+#     # array([[0, 1],
+#     #        [4, 4]])
+#     # &gt;&gt;&gt; c = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int8)
+#     # &gt;&gt;&gt; c
+#     # array([[0, 1],
+#     #        [4, 4]], dtype=int8)
+#     # &gt;&gt;&gt; serialize_json([math.inf, a, b, c])
+#     # b&#39;[null,{&#34;_numpy.ndarray.tolist()&#34;:[[&#34;0.3333333333333333&#34;,&#34;1.25&#34;],[&#34;4.826809000000001&#34;,&#34;text&#34;]],&#34;_type_orjson&#34;:&#34;&lt;U32&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int64&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int8&#34;}]&#39;
+#     # &gt;&gt;&gt; import pandas as pd
+#     # &gt;&gt;&gt; df = pd.DataFrame(
+#     # ...     [[1/3, 5/4], [1.3**54, &#34;text&#34;]],
+#     # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;],
+#     # ...     columns=[&#34;col 1&#34;, &#34;col 2&#34;],
+#     # ... )
+#     # &gt;&gt;&gt; df
+#     #               col 1 col 2
+#     # row 1  3.333333e-01  1.25
+#     # row 2  1.422136e+06  text
+#     # &gt;&gt;&gt; serialize_json(df)
+#     # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;col 1\\&#34;:{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1422135.6537506874},\\&#34;col 2\\&#34;:{\\&#34;row 1\\&#34;:1.25,\\&#34;row 2\\&#34;:\\&#34;text\\&#34;}}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.frame.DataFrame\&#39;&gt;&#34;}&#39;
+#     # &gt;&gt;&gt; s = pd.Series(
+#     # ...     [1/3, 5/4, (1.3)**54, &#34;text&#34;],
+#     # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;, &#34;row 3&#34;, &#34;row 4&#34;],
+#     # ... )
+#     # &gt;&gt;&gt; s
+#     # row 1          0.333333
+#     # row 2              1.25
+#     # row 3    1422135.653751
+#     # row 4              text
+#     # dtype: object
+#     # &gt;&gt;&gt; serialize_json(s)
+#     # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1.25,\\&#34;row 3\\&#34;:1422135.6537506874,\\&#34;row 4\\&#34;:\\&#34;text\\&#34;}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.series.Series\&#39;&gt;&#34;}&#39;
+#     # &#34;&#34;&#34;
+#     return dumps(obj, default=custom_orjson_encoder, option=OPT_SORT_KEYS)
+
+
+# def deserialize_json(blob):
+#     return json.loads(blob, object_hook=json_object_hook_decoder)</code></pre>
 </details>
 </section>
 <section>
@@ -374,63 +381,6 @@ def deserialize_json(blob):
 <pre><code class="python">def bytes2integers(bytes_content: bytes, n=4):
     &#34;&#34;&#34;Each 4 bytes become an int.&#34;&#34;&#34;
     return [int.from_bytes(bytes_content[i : i + n], &#34;little&#34;) for i in range(0, len(bytes_content), n)]</code></pre>
-</details>
-</dd>
-<dt id="lazydf.compression.custom_orjson_encoder"><code class="name flex">
-<span>def <span class="ident">custom_orjson_encoder</span></span>(<span>obj)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def custom_orjson_encoder(obj):
-    # E.g., pandas dataframes.
-    typ = str(type(obj))
-    if typ == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return obj.to_numpy()
-    if typ == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return obj.to_numpy()
-    # if hasattr(obj, &#39;to_json&#39;):
-    #     # REMINDER: default_handler=str is to avoid infinite recursion, e.g., on iris.arff
-    #     txt = obj.to_json(force_ascii=False, default_handler=str)
-    #     return {&#34;_type_orjson&#34;: str(type(obj)), &#34;_obj.to_json()&#34;: txt}
-
-    # Numpy objects generic type and ndarray, keeping dtype.
-    if typ == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        print(typ)
-        try:
-            return serialize_numpy(obj)
-        except Exception as e:
-            print(e)
-            exit()
-
-    # try:
-    #     import numpy
-    #     if isinstance(obj, numpy.generic):
-    #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.asscalar(obj)&#34;: numpy.asscalar(obj)}
-    #     if isinstance(obj, numpy.ndarray):
-    #         return {&#34;_type_orjson&#34;: str(obj.dtype), &#34;_numpy.ndarray.tolist()&#34;: obj.tolist()}
-    # except ImportError as e:
-    #     pass
-
-    if isinstance(obj, bytes):
-        return obj.decode()  # nem qq byte vira string!
-    raise TypeError</code></pre>
-</details>
-</dd>
-<dt id="lazydf.compression.deserialize_json"><code class="name flex">
-<span>def <span class="ident">deserialize_json</span></span>(<span>blob)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def deserialize_json(blob):
-    return json.loads(blob, object_hook=json_object_hook_decoder)</code></pre>
 </details>
 </dd>
 <dt id="lazydf.compression.deserialize_numpy"><code class="name flex">
@@ -471,32 +421,14 @@ def deserialize_json(blob):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def frompickle(blob):
-    import lz4.frame as lz4
-
-    prefix = blob[:5]
-    blob = blob[5:]
-    if prefix == b&#34;pckl_&#34;:
-        return pickle.loads(lz4.decompress(blob))
-    elif prefix == b&#34;dill_&#34;:
+    prefix = blob[:7]
+    blob = blob[7:]
+    if prefix == b&#34;05pckl_&#34;:
+        return pickle.loads(blob)
+    elif prefix == b&#34;05dill_&#34;:
         import dill
 
-        return dill.loads(lz4.decompress(blob))</code></pre>
-</details>
-</dd>
-<dt id="lazydf.compression.import_dependence"><code class="name flex">
-<span>def <span class="ident">import_dependence</span></span>(<span>dep)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def import_dependence(dep):
-    try:
-        return import_module(dep)
-    except ImportError as e:
-        raise Exception(f&#34;Missing {dep} library. Need a complete install\n&#34; &#34;pip install -U lazydf[full]&#34;)</code></pre>
+        return dill.loads(blob)</code></pre>
 </details>
 </dd>
 <dt id="lazydf.compression.integers2bytes"><code class="name flex">
@@ -513,51 +445,23 @@ def deserialize_json(blob):
     return b&#34;&#34;.join(d.to_bytes(n, byteorder=&#34;little&#34;) for d in lst)</code></pre>
 </details>
 </dd>
-<dt id="lazydf.compression.json_object_hook_decoder"><code class="name flex">
-<span>def <span class="ident">json_object_hook_decoder</span></span>(<span>dic)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def json_object_hook_decoder(dic):
-    if &#34;_type_orjson&#34; in dic:
-        if &#34;_obj.to_json()&#34; in dic:
-            if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-                m = import_dependence(&#34;pandas&#34;)
-                return m.read_json(dic[&#34;_obj.to_json()&#34;])  # , default_handler=str)
-            if dic[&#34;_type_orjson&#34;] == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-                m = import_dependence(&#34;pandas&#34;)
-                # default_handler=callable
-                return m.read_json(dic[&#34;_obj.to_json()&#34;], typ=dic[&#34;_type_orjson&#34;])
-            else:  # pragma: no cover
-                raise Exception(f&#34;Cannot desserialize object of type &#39;{dic[&#39;_type_orjson&#39;]}&#39;&#34;)
-        if (c := &#34;_numpy.asscalar(obj)&#34;) in dic or (c := &#34;_numpy.ndarray.tolist()&#34;) in dic:
-            m = import_dependence(&#34;numpy&#34;)
-            dtype = &#34;str&#34; if len(dic[&#34;_type_orjson&#34;]) &gt; 10 else dic[&#34;_type_orjson&#34;]
-            return m.array(dic[c], dtype=dtype)
-    return dic</code></pre>
-</details>
-</dd>
 <dt id="lazydf.compression.pack"><code class="name flex">
-<span>def <span class="ident">pack</span></span>(<span>obj, ensure_determinism=True, compressed=True)</span>
+<span>def <span class="ident">pack</span></span>(<span>obj, ensure_determinism, unsafe_fallback, compressed=True)</span>
 </code></dt>
 <dd>
 <div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; import numpy as np
 &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&quot;x&quot;: b&quot;dsa&quot;}], [b&quot;asd&quot;, 5]]
-&gt;&gt;&gt; blob = pack(d)
+&gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
 &gt;&gt;&gt; unpack(blob)
 [[array([[1.        , 0.66666667],
        [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
-&gt;&gt;&gt; blob = pack(d, compressed=False)
-&gt;&gt;&gt; unpack(blob, compressed=False)
+&gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+&gt;&gt;&gt; unpack(blob)
 [[array([[1.        , 0.66666667],
        [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
 &gt;&gt;&gt; import pandas as pd
 &gt;&gt;&gt; df = pd.DataFrame(np.array([[1, 2/3], [4, 5]]))
-&gt;&gt;&gt; unpack(pack(df))
+&gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
      0         1
 0  1.0  0.666667
 1  4.0  5.000000
@@ -566,90 +470,35 @@ def deserialize_json(blob):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def pack(obj, ensure_determinism=True, compressed=True):
+<pre><code class="python">def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
     r&#34;&#34;&#34;
     &gt;&gt;&gt; import numpy as np
     &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&#34;x&#34;: b&#34;dsa&#34;}], [b&#34;asd&#34;, 5]]
-    &gt;&gt;&gt; blob = pack(d)
+    &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
     &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
-    &gt;&gt;&gt; blob = pack(d, compressed=False)
-    &gt;&gt;&gt; unpack(blob, compressed=False)
+    &gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
     &gt;&gt;&gt; import pandas as pd
     &gt;&gt;&gt; df = pd.DataFrame(np.array([[1, 2/3], [4, 5]]))
-    &gt;&gt;&gt; unpack(pack(df))
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
          0         1
     0  1.0  0.666667
     1  4.0  5.000000
     &#34;&#34;&#34;
-    dump = traversal_enc(obj, ensure_determinism)
+    dump = traversal_enc(obj, ensure_determinism, unsafe_fallback)
     if compressed:
         import lz4.frame as lz4
 
-        return lz4.compress(dump)
+        return b&#34;00lz4__&#34; + lz4.compress(dump)
     return dump</code></pre>
 </details>
 </dd>
-<dt id="lazydf.compression.serialize_json"><code class="name flex">
-<span>def <span class="ident">serialize_json</span></span>(<span>obj)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def serialize_json(obj):
-    # r&#34;&#34;&#34;
-    # &gt;&gt;&gt; import numpy as np
-    # &gt;&gt;&gt; import math
-    # &gt;&gt;&gt; a = np.array([[1/3, 5/4], [1.3**6, &#34;text&#34;]])
-    # &gt;&gt;&gt; a
-    # array([[&#39;0.3333333333333333&#39;, &#39;1.25&#39;],
-    #        [&#39;4.826809000000001&#39;, &#39;text&#39;]], dtype=&#39;&lt;U32&#39;)
-    # &gt;&gt;&gt; b = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int64)
-    # &gt;&gt;&gt; b
-    # array([[0, 1],
-    #        [4, 4]])
-    # &gt;&gt;&gt; c = np.array([[1/3,5/4], [1.3**6, 4]], dtype = np.int8)
-    # &gt;&gt;&gt; c
-    # array([[0, 1],
-    #        [4, 4]], dtype=int8)
-    # &gt;&gt;&gt; serialize_json([math.inf, a, b, c])
-    # b&#39;[null,{&#34;_numpy.ndarray.tolist()&#34;:[[&#34;0.3333333333333333&#34;,&#34;1.25&#34;],[&#34;4.826809000000001&#34;,&#34;text&#34;]],&#34;_type_orjson&#34;:&#34;&lt;U32&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int64&#34;},{&#34;_numpy.ndarray.tolist()&#34;:[[0,1],[4,4]],&#34;_type_orjson&#34;:&#34;int8&#34;}]&#39;
-    # &gt;&gt;&gt; import pandas as pd
-    # &gt;&gt;&gt; df = pd.DataFrame(
-    # ...     [[1/3, 5/4], [1.3**54, &#34;text&#34;]],
-    # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;],
-    # ...     columns=[&#34;col 1&#34;, &#34;col 2&#34;],
-    # ... )
-    # &gt;&gt;&gt; df
-    #               col 1 col 2
-    # row 1  3.333333e-01  1.25
-    # row 2  1.422136e+06  text
-    # &gt;&gt;&gt; serialize_json(df)
-    # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;col 1\\&#34;:{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1422135.6537506874},\\&#34;col 2\\&#34;:{\\&#34;row 1\\&#34;:1.25,\\&#34;row 2\\&#34;:\\&#34;text\\&#34;}}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.frame.DataFrame\&#39;&gt;&#34;}&#39;
-    # &gt;&gt;&gt; s = pd.Series(
-    # ...     [1/3, 5/4, (1.3)**54, &#34;text&#34;],
-    # ...     index=[&#34;row 1&#34;, &#34;row 2&#34;, &#34;row 3&#34;, &#34;row 4&#34;],
-    # ... )
-    # &gt;&gt;&gt; s
-    # row 1          0.333333
-    # row 2              1.25
-    # row 3    1422135.653751
-    # row 4              text
-    # dtype: object
-    # &gt;&gt;&gt; serialize_json(s)
-    # b&#39;{&#34;_obj.to_json()&#34;:&#34;{\\&#34;row 1\\&#34;:0.3333333333,\\&#34;row 2\\&#34;:1.25,\\&#34;row 3\\&#34;:1422135.6537506874,\\&#34;row 4\\&#34;:\\&#34;text\\&#34;}&#34;,&#34;_type_orjson&#34;:&#34;&lt;class \&#39;pandas.core.series.Series\&#39;&gt;&#34;}&#39;
-    # &#34;&#34;&#34;
-    return dumps(obj, default=custom_orjson_encoder, option=OPT_SORT_KEYS)</code></pre>
-</details>
-</dd>
 <dt id="lazydf.compression.serialize_numpy"><code class="name flex">
-<span>def <span class="ident">serialize_numpy</span></span>(<span>obj)</span>
+<span>def <span class="ident">serialize_numpy</span></span>(<span>obj, ensure_determinism, unsafe_fallback, prefix=b'00nmpy_')</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -657,22 +506,27 @@ def deserialize_json(blob):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def serialize_numpy(obj):
+<pre><code class="python">def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
     import numpy
 
     if isinstance(obj, numpy.ndarray):
+        if obj.dtype in [np.dtype(object)]:
+            if unsafe_fallback:
+                return topickle(obj, ensure_determinism)
+            raise Exception(f&#34;Cannot handle this ndarray dtype: &#39;{np.dtype(object)}&#39;&#34;)
+
         dims = str(len(obj.shape))
         dtype = str(obj.dtype)
         rest_of_header = f&#34;§{dims}§{dtype}§&#34;.encode() + integers2bytes(obj.shape)
         rest_of_header_len = str(len(rest_of_header)).encode()
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
-        return header + obj.data.tobytes()
-    raise Exception(f&#34;Cannot handle this type {type(obj)}, check its shape or dtype&#34;)</code></pre>
+        return prefix + header + obj.data.tobytes()
+    raise Exception(f&#34;Cannot handle this type &#39;{type(obj)}&#39;, check its shape or dtype&#34;)</code></pre>
 </details>
 </dd>
 <dt id="lazydf.compression.topickle"><code class="name flex">
-<span>def <span class="ident">topickle</span></span>(<span>obj, ensure_determinism=True)</span>
+<span>def <span class="ident">topickle</span></span>(<span>obj, ensure_determinism)</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -680,23 +534,21 @@ def deserialize_json(blob):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def topickle(obj, ensure_determinism=True):
-    import lz4.frame as lz4
-
+<pre><code class="python">def topickle(obj, ensure_determinism):
     try:
         try:
+            prefix = b&#34;05pckl_&#34;
             dump = pickle.dumps(obj, protocol=5)
-            prefix = b&#34;pckl_&#34;
         except Exception as e:
             if ensure_determinism:  # pragma: no cover
                 print(e)
                 raise NondeterminismException(&#34;Cannot serialize deterministically.&#34;)
             import dill
 
+            prefix = b&#34;05dill_&#34;
             dump = dill.dumps(obj, protocol=5)
-            prefix = b&#34;dill_&#34;
 
-        blob = prefix + lz4.compress(dump)
+        blob = prefix + dump
         return blob
     except KeyError as e:  # pragma: no cover
         if str(e) == &#34;&#39;__getstate__&#39;&#34;:  # pragma: no cover
@@ -717,22 +569,25 @@ def deserialize_json(blob):
 <pre><code class="python">def traversal_dec(dump):
     if isinstance(dump, bytes):
         header = dump[2:7]
+        blob = dump[7:]
         if header == b&#34;json_&#34;:
-            return orjson.loads(dump[7:])
+            return orjson.loads(blob)
         if header == b&#34;bson_&#34;:
-            return bson.decode(dump[7:])[&#34;_&#34;]
+            return bson.decode(blob)[&#34;_&#34;]
         if header == b&#34;nmpy_&#34;:
-            return deserialize_numpy(dump[7:])
+            return deserialize_numpy(blob)
         if header == b&#34;pddf_&#34;:
             from pandas import DataFrame
 
-            return DataFrame(deserialize_numpy(dump[7:]))
+            return DataFrame(deserialize_numpy(blob))
         if header == b&#34;pdsr_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(dump[7:]))
+            return Series(deserialize_numpy(blob))
         if header == b&#34;trav_&#34;:
-            return traversal_dec(bson.decode(dump[7:])[&#34;_&#34;])
+            return traversal_dec(bson.decode(blob)[&#34;_&#34;])
+        if header in [b&#34;pckl_&#34;, b&#34;dill_&#34;]:
+            return frompickle(dump)
         return dump
     if isinstance(dump, (int, str, bool)):
         return dump
@@ -750,7 +605,7 @@ def deserialize_json(blob):
 </details>
 </dd>
 <dt id="lazydf.compression.traversal_enc"><code class="name flex">
-<span>def <span class="ident">traversal_enc</span></span>(<span>obj, ensure_determinism=True)</span>
+<span>def <span class="ident">traversal_enc</span></span>(<span>obj, ensure_determinism, unsafe_fallback)</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -758,7 +613,7 @@ def deserialize_json(blob):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def traversal_enc(obj, ensure_determinism=True):
+<pre><code class="python">def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     if isinstance(obj, bytes):
         return obj
     try:
@@ -769,22 +624,23 @@ def deserialize_json(blob):
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
         pass
-    if str(obj.__class__) == &#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;:
-        return b&#34;00nmpy_&#34; + serialize_numpy(obj)
-    if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
-        return b&#34;00pddf_&#34; + serialize_numpy(obj.to_numpy())
-    if str(obj.__class__) == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
-        return b&#34;00pdsr_&#34; + serialize_numpy(obj.to_numpy())
+    klass = str(obj.__class__)
+    if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
+        return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
+    if klass in [&#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;, &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;]:
+        return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback, m[klass])
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
-            lst_of_bins.append(traversal_enc(o, ensure_determinism))
+            lst_of_bins.append(traversal_enc(o, ensure_determinism, unsafe_fallback))
         return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
+    if unsafe_fallback:
+        return topickle(obj, ensure_determinism)
     raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)</code></pre>
 </details>
 </dd>
 <dt id="lazydf.compression.unpack"><code class="name flex">
-<span>def <span class="ident">unpack</span></span>(<span>blob, compressed=True)</span>
+<span>def <span class="ident">unpack</span></span>(<span>blob)</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -792,14 +648,12 @@ def deserialize_json(blob):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def unpack(blob, compressed=True):
-    if compressed:
+<pre><code class="python">def unpack(blob):
+    if blob[:7] == b&#34;00lz4__&#34;:
         import lz4.frame as lz4
 
-        dump = lz4.decompress(blob)
-    else:
-        dump = blob
-    return traversal_dec(dump)</code></pre>
+        blob = lz4.decompress(blob[7:])
+    return traversal_dec(blob)</code></pre>
 </details>
 </dd>
 </dl>
@@ -841,17 +695,12 @@ def deserialize_json(blob):
 </ul>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
-<ul class="">
+<ul class="two-column">
 <li><code><a title="lazydf.compression.bytes2integers" href="#lazydf.compression.bytes2integers">bytes2integers</a></code></li>
-<li><code><a title="lazydf.compression.custom_orjson_encoder" href="#lazydf.compression.custom_orjson_encoder">custom_orjson_encoder</a></code></li>
-<li><code><a title="lazydf.compression.deserialize_json" href="#lazydf.compression.deserialize_json">deserialize_json</a></code></li>
 <li><code><a title="lazydf.compression.deserialize_numpy" href="#lazydf.compression.deserialize_numpy">deserialize_numpy</a></code></li>
 <li><code><a title="lazydf.compression.frompickle" href="#lazydf.compression.frompickle">frompickle</a></code></li>
-<li><code><a title="lazydf.compression.import_dependence" href="#lazydf.compression.import_dependence">import_dependence</a></code></li>
 <li><code><a title="lazydf.compression.integers2bytes" href="#lazydf.compression.integers2bytes">integers2bytes</a></code></li>
-<li><code><a title="lazydf.compression.json_object_hook_decoder" href="#lazydf.compression.json_object_hook_decoder">json_object_hook_decoder</a></code></li>
 <li><code><a title="lazydf.compression.pack" href="#lazydf.compression.pack">pack</a></code></li>
-<li><code><a title="lazydf.compression.serialize_json" href="#lazydf.compression.serialize_json">serialize_json</a></code></li>
 <li><code><a title="lazydf.compression.serialize_numpy" href="#lazydf.compression.serialize_numpy">serialize_numpy</a></code></li>
 <li><code><a title="lazydf.compression.topickle" href="#lazydf.compression.topickle">topickle</a></code></li>
 <li><code><a title="lazydf.compression.traversal_dec" href="#lazydf.compression.traversal_dec">traversal_dec</a></code></li>
