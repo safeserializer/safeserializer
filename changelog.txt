@@ -1,3 +1,2 @@
-Reduce dependencies
-Hide non-mandatory imports: lz4
-Add version prefix for future changes in compression
+Improve prefixing
+Comment out possibly useless code
