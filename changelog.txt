@@ -1,2 +1,3 @@
+Fix pandas encoder
 Improve prefixing
 Comment out possibly useless code

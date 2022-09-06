@@ -63,6 +63,9 @@ def frompickle(blob):
         return dill.loads(blob)
 
 
+m = {"<class 'pandas.core.frame.DataFrame'>": b"00pddf_", "<class 'pandas.core.series.Series'>": b"00pdsr_"}
+
+
 def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     if isinstance(obj, bytes):
         return obj
@@ -74,8 +77,11 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         return b"00bson_" + bson.encode({"_": obj})
     except InvalidDocument as e:
         pass
-    if str(obj.__class__) in ["<class 'numpy.ndarray'>", "<class 'pandas.core.frame.DataFrame'>", "<class 'pandas.core.series.Series'>"]:
+    klass = str(obj.__class__)
+    if klass in ["<class 'numpy.ndarray'>"]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
+    if klass in ["<class 'pandas.core.frame.DataFrame'>", "<class 'pandas.core.series.Series'>"]:
+        return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback, m[klass])
     if isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
@@ -128,17 +134,17 @@ def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
     r"""
     >>> import numpy as np
     >>> d = [[np.array([[1, 2/3], [4, 5]]), {"x": b"dsa"}], [b"asd", 5]]
-    >>> blob = pack(d)
+    >>> blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
     >>> unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
-    >>> blob = pack(d, compressed=False)
-    >>> unpack(blob, compressed=False)
+    >>> blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+    >>> unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
     >>> import pandas as pd
     >>> df = pd.DataFrame(np.array([[1, 2/3], [4, 5]]))
-    >>> unpack(pack(df))
+    >>> unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
          0         1
     0  1.0  0.666667
     1  4.0  5.000000
@@ -163,10 +169,7 @@ class NondeterminismException(Exception):
     pass
 
 
-m = {"<class 'numpy.ndarray'>": b"00nmpy_", "<class 'pandas.core.frame.DataFrame'>": b"00pddf_", "<class 'pandas.core.series.Series'>": b"00pdsr_"}
-
-
-def serialize_numpy(obj, ensure_determinism, unsafe_fallback):
+def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_"):
     import numpy
 
     if isinstance(obj, numpy.ndarray):
@@ -181,7 +184,7 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback):
         rest_of_header_len = str(len(rest_of_header)).encode()
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
-        return m[str(obj.__class__)] + header + obj.data.tobytes()
+        return prefix + header + obj.data.tobytes()
     raise Exception(f"Cannot handle this type '{type(obj)}', check its shape or dtype")
 
 
