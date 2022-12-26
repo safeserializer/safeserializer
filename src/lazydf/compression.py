@@ -76,6 +76,9 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         return b"00bson_" + bson.encode({"_": obj})
     except InvalidDocument as e:
         pass
+    except OverflowError as o:
+        if "8-byte ints" in str(o) and isinstance(obj, int):
+            return b"00bint_" + str(obj).encode()
     klass = str(obj.__class__)
     if klass in ["<class 'numpy.ndarray'>"]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
@@ -99,6 +102,8 @@ def traversal_dec(dump):
             return orjson.loads(blob)
         if header == b"bson_":
             return bson.decode(blob)["_"]
+        if header == b"bint_":
+            return int(blob.decode())
         if header == b"nmpy_":
             return deserialize_numpy(blob)
         if header == b"pddf_":
