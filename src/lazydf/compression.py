@@ -24,7 +24,6 @@ import pickle
 from importlib import import_module
 
 import bson
-import numpy as np
 from bson import InvalidDocument
 from orjson import OPT_SORT_KEYS, orjson, dumps
 
@@ -170,9 +169,9 @@ class NondeterminismException(Exception):
 
 
 def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_"):
-    import numpy
+    import numpy as np
 
-    if isinstance(obj, numpy.ndarray):
+    if isinstance(obj, np.ndarray):
         if obj.dtype in [np.dtype(object)]:
             if unsafe_fallback:
                 return topickle(obj, ensure_determinism)
@@ -189,7 +188,7 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_")
 
 
 def deserialize_numpy(blob):
-    import numpy
+    import numpy as np
 
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
@@ -201,9 +200,9 @@ def deserialize_numpy(blob):
 
     dump = memoryview(blob)[header_len:]
     # dump = lz4.decompress(dump)
-    m = numpy.frombuffer(dump, dtype=dtype)
+    m = np.frombuffer(dump, dtype=dtype)
     if dims > 1:
-        m = numpy.reshape(m, newshape=shape)
+        m = np.reshape(m, newshape=shape)
     return m
 
 
