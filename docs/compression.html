@@ -52,7 +52,6 @@ import pickle
 from importlib import import_module
 
 import bson
-import numpy as np
 from bson import InvalidDocument
 from orjson import OPT_SORT_KEYS, orjson, dumps
 
@@ -198,9 +197,9 @@ class NondeterminismException(Exception):
 
 
 def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
-    import numpy
+    import numpy as np
 
-    if isinstance(obj, numpy.ndarray):
+    if isinstance(obj, np.ndarray):
         if obj.dtype in [np.dtype(object)]:
             if unsafe_fallback:
                 return topickle(obj, ensure_determinism)
@@ -217,7 +216,7 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmp
 
 
 def deserialize_numpy(blob):
-    import numpy
+    import numpy as np
 
     rest_of_header_len = blob[:10].split(b&#34;\xc2\xa7&#34;)[0]
     first_len = len(rest_of_header_len)
@@ -229,9 +228,9 @@ def deserialize_numpy(blob):
 
     dump = memoryview(blob)[header_len:]
     # dump = lz4.decompress(dump)
-    m = numpy.frombuffer(dump, dtype=dtype)
+    m = np.frombuffer(dump, dtype=dtype)
     if dims &gt; 1:
-        m = numpy.reshape(m, newshape=shape)
+        m = np.reshape(m, newshape=shape)
     return m
 
 
@@ -393,7 +392,7 @@ def bytes2integers(bytes_content: bytes, n=4):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def deserialize_numpy(blob):
-    import numpy
+    import numpy as np
 
     rest_of_header_len = blob[:10].split(b&#34;\xc2\xa7&#34;)[0]
     first_len = len(rest_of_header_len)
@@ -405,9 +404,9 @@ def bytes2integers(bytes_content: bytes, n=4):
 
     dump = memoryview(blob)[header_len:]
     # dump = lz4.decompress(dump)
-    m = numpy.frombuffer(dump, dtype=dtype)
+    m = np.frombuffer(dump, dtype=dtype)
     if dims &gt; 1:
-        m = numpy.reshape(m, newshape=shape)
+        m = np.reshape(m, newshape=shape)
     return m</code></pre>
 </details>
 </dd>
@@ -507,9 +506,9 @@ def bytes2integers(bytes_content: bytes, n=4):
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
-    import numpy
+    import numpy as np
 
-    if isinstance(obj, numpy.ndarray):
+    if isinstance(obj, np.ndarray):
         if obj.dtype in [np.dtype(object)]:
             if unsafe_fallback:
                 return topickle(obj, ensure_determinism)
