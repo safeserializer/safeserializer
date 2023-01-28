@@ -104,6 +104,9 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
         pass
+    except OverflowError as o:
+        if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
+            return b&#34;00bint_&#34; + str(obj).encode()
     klass = str(obj.__class__)
     if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
@@ -127,6 +130,8 @@ def traversal_dec(dump):
             return orjson.loads(blob)
         if header == b&#34;bson_&#34;:
             return bson.decode(blob)[&#34;_&#34;]
+        if header == b&#34;bint_&#34;:
+            return int(blob.decode())
         if header == b&#34;nmpy_&#34;:
             return deserialize_numpy(blob)
         if header == b&#34;pddf_&#34;:
@@ -573,6 +578,8 @@ def bytes2integers(bytes_content: bytes, n=4):
             return orjson.loads(blob)
         if header == b&#34;bson_&#34;:
             return bson.decode(blob)[&#34;_&#34;]
+        if header == b&#34;bint_&#34;:
+            return int(blob.decode())
         if header == b&#34;nmpy_&#34;:
             return deserialize_numpy(blob)
         if header == b&#34;pddf_&#34;:
@@ -623,6 +630,9 @@ def bytes2integers(bytes_content: bytes, n=4):
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
         pass
+    except OverflowError as o:
+        if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
+            return b&#34;00bint_&#34; + str(obj).encode()
     klass = str(obj.__class__)
     if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
