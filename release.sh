@@ -29,7 +29,7 @@ echo
 echo "----------------- docs/black... -----------------------"
 read -p "press enter"
 rm docs -rf
-poetry run black -l120 src/ tests/
+poetry run black -l200 src/ tests/
 poetry run pdoc --html --force lazydf -o docs
 mv docs/lazydf/* docs/
 rm docs/lazydf -rf
