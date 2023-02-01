@@ -13,8 +13,7 @@ from safeserializer.compression import pack, unpack
 print("All options, except 'deprecated' and 'pickle' are unable to handle np.object (e.g., DF containing strings).")
 print("Both options are unsafe (deprecated seems to use pickle).")
 
-data = {'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 5, 'f': 6}
-s = S(data=data, index=['a', 'b', 'c', 'd', 'e', 'f'])
+s = S({"a": "5", "b": "6"})
 for l in [5, 1000]:
     df1 = DF({"a": [5, 9, 11] * l, "b": [7, 13, 19] * l})
     df2 = DF({"a": ['5', '9', '11'] * l, "b": [7, 13, 19] * l})
@@ -60,25 +59,25 @@ for l in [5, 1000]:
         buf = pa.BufferOutputStream()
         buf2 = pa.BufferOutputStream()
         buf3 = pa.BufferOutputStream()
-        pq.write_table(table, buf1, compression='lz4', compression_level=0)
+        pq.write_table(table, buf, compression='lz4', compression_level=0)
         pq.write_table(table2, buf2, compression='lz4', compression_level=0)
         pq.write_table(col, buf3, compression='lz4', compression_level=0)
         a = bytes(buf.getvalue())
         b = bytes(buf2.getvalue())
         c = bytes(buf3.getvalue())
 
-        c = pa.parquet.read_table(pa.BufferReader(a))
-        d = pa.parquet.read_table(pa.BufferReader(b))
-        e = pa.parquet.read_table(pa.BufferReader(c))
-        c.to_pandas(), d.to_pandas(), e.to_pandas().iloc[:, 0]
+        d = pa.parquet.read_table(pa.BufferReader(a))
+        e = pa.parquet.read_table(pa.BufferReader(b))
+        f = pa.parquet.read_table(pa.BufferReader(c))
+        d.to_pandas(), e.to_pandas(), f.to_pandas().iloc[:, 0]
         return len(a) + len(b) + len(c)
 
 
     t = timeit(a, number=100)
-    print(f"pack\t{round(t * 10, 3):1.2}\tms", a(), sep="\t", end="\t\t")
+    print(f"pack\t{round(t * 10, 3):2.3} ms", a(), sep="\t", end="\t\t")
     t = timeit(b, number=50)
-    print(f"pickle\t{round(t * 10, 3):1.1}\tms", b(), sep="\t")
+    print(f"pickle\t{round(t * 10, 3):2.3} ms", b(), sep="\t", end="\t\t")
     # t = timeit(c, number=1000)
     # print("feather", round(t , 3), "ms", sep="\t\t")
-    # t = timeit(d, number=1000)
-    # print("parquet", round(t , 3), "ms", sep="\t\t")
+    t = timeit(d, number=1000)
+    print(f"parquet\t{round(t * 10, 3):2.3} ms", d(), sep="\t\t")

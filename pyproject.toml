@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "safeserializer"
-version = "0.230201.0"
+version = "0.230202.0"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -12,7 +12,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.10,<4.0"
 orjson = "^3.7.8"
-pymongo = "^4.2.0"  # Needed because it includes bson
+pymongo = "^4.2.0"  # Needed because it includes the non buggy implementation of bson.
 # Optional dependencies.
 lz4 = { version = "^4.0.2", optional = true }
 pandas = { version = "^1.4.3", optional = true }
@@ -24,8 +24,8 @@ full = ["lz4", "pandas", "dill"]
 [tool.poetry.group.dev.dependencies]
 pdoc3 = "^0.10.0"
 autoreadme = "^0.2102.20"
-pytest = "^7.1.2"
-pytest-cov = "^3.0.0"
+pytest = "^7.2.1"
+pytest-cov = "^4.0.0"
 ipython = "^8.4.0"
 black = "^22.6.0"
 flake8 = "^4.0.1"
