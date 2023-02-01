@@ -1,14 +1,14 @@
-![test](https://github.com/lazydf/lazydf/workflows/test/badge.svg)
-[![codecov](https://codecov.io/gh/lazydf/lazydf/branch/main/graph/badge.svg)](https://codecov.io/gh/lazydf/lazydf)
-<a href="https://pypi.org/project/lazydf">
-<img src="https://img.shields.io/github/v/release/lazydf/lazydf?display_name=tag&sort=semver&color=blue" alt="github">
+![test](https://github.com/safeserializer/safeserializer/workflows/test/badge.svg)
+[![codecov](https://codecov.io/gh/safeserializer/safeserializer/branch/main/graph/badge.svg)](https://codecov.io/gh/safeserializer/safeserializer)
+<a href="https://pypi.org/project/safeserializer">
+<img src="https://img.shields.io/github/v/release/safeserializer/safeserializer?display_name=tag&sort=semver&color=blue" alt="github">
 </a>
 ![Python version](https://img.shields.io/badge/python-3.10-blue.svg)
 [![license: GPL v3](https://img.shields.io/badge/License-GPLv3_%28ask_for_options%29-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![API documentation](https://img.shields.io/badge/doc-API%20%28auto%29-a0a0a0.svg)](https://lazydf.github.io/lazydf)
+[![API documentation](https://img.shields.io/badge/doc-API%20%28auto%29-a0a0a0.svg)](https://safeserializer.github.io/safeserializer)
 
 
-# lazydf - Serialization of nested objects to binary format 
+# safeserializer - Serialization of nested objects to binary format 
 An alternative to pickle, but may use pickle if safety is not needed.
 
 Principle: Start from the simplest and safest possible and try to be fast.
@@ -16,11 +16,14 @@ Principle: Start from the simplest and safest possible and try to be fast.
   * `dict`, `str`, `int`, etc
 * try bson
   * standard types accepted by mongodb
-* serialize as numpy
-  * ndarray, pandas dataframe/series
+* convert bigints to str
+* try to serialize as raw numpy bytes
+  * ndarray, pandas homogeneous Series/DataFrame
+* try parquet
+  * pandas ill-typed Series/DataFrame
+* resort to pickle if allowed (`unsafe_fallback=True`)
+* resort to dill if allowed (`ensure_determinism=False`).
 
-Non-deterministic and unsafe modes (pickle) are planned for the near future. 
- 
 
 
 ## Python installation
@@ -36,14 +39,13 @@ pip install safeserializer
 
 ### from source
 ```bash
-git clone https://github.com/lazydf/lazydf
+git clone https://github.com/safeserializer/safeserializer
 cd safeserializer
 poetry install
 ```
 
 ### Examples
 Some usage examples.
-
 
 
 
