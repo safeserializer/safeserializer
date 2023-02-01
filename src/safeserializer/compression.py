@@ -1,19 +1,19 @@
 #  Copyright (c) 2021. Davi Pereira dos Santos
-#  This file is part of the lazydf project.
+#  This file is part of the safeserializer project.
 #  Please respect the license - more about this in the section (*) below.
 #
-#  lazydf is free software: you can redistribute it and/or modify
+#  safeserializer is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
 #  the Free Software Foundation, either version 3 of the License, or
 #  (at your option) any later version.
 #
-#  lazydf is distributed in the hope that it will be useful,
+#  safeserializer is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU General Public License for more details.
 #
 #  You should have received a copy of the GNU General Public License
-#  along with lazydf.  If not, see <http://www.gnu.org/licenses/>.
+#  along with safeserializer.  If not, see <http://www.gnu.org/licenses/>.
 #
 #  (*) Removing authorship by any means, e.g. by distribution of derived
 #  works or verbatim, obfuscated, compiled or rewritten versions of any
@@ -243,7 +243,7 @@ def bytes2integers(bytes_content: bytes, n=4):
 #     try:
 #         return import_module(dep)
 #     except ImportError as e:
-#         raise Exception(f"Missing {dep} library. Need a complete install\n" "pip install -U lazydf[full]")
+#         raise Exception(f"Missing {dep} library. Need a complete install\n" "pip install -U safeserializer[full]")
 
 
 # def custom_orjson_encoder(obj):

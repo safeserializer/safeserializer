@@ -357,7 +357,7 @@ testing = ["Django (<3.1)", "attrs", "colorama", "docopt", "pytest (<7.0.0)"]
 name = "lz4"
 version = "4.3.2"
 description = "LZ4 Bindings for Python"
-category = "dev"
+category = "main"
 optional = true
 python-versions = ">=3.7"
 files = [
@@ -1149,9 +1149,9 @@ files = [
 ]
 
 [extras]
-full = []
+full = ["lz4"]
 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10,<4.0"
-content-hash = "82806b012bde14d117f0320093f39a2ce0a6e26723d9732c7f939503853b893b"
+content-hash = "cfa9a8f6a8f0f5dd23ad39a5122585aaff67415f08652eea6240eab1fd4ba08d"

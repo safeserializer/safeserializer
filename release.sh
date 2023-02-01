@@ -30,9 +30,9 @@ echo "----------------- docs/black... -----------------------"
 read -p "press enter"
 rm docs -rf
 poetry run black -l200 src/ tests/
-poetry run pdoc --html --force lazydf -o docs
-mv docs/lazydf/* docs/
-rm docs/lazydf -rf
+poetry run pdoc --html --force safeserializer -o docs
+mv docs/safeserializer/* docs/
+rm docs/safeserializer -rf
 git add docs
 echo "----------------- docs/black done -----------------------"
 echo; echo

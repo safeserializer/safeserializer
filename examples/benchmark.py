@@ -1,4 +1,3 @@
-import warnings
 from pickle import dumps, loads
 from timeit import timeit
 
@@ -9,7 +8,7 @@ from pandas import DataFrame as DF
 from pandas import Series as S
 from pyarrow.feather import read_feather, write_feather
 
-from lazydf.compression import pack, unpack
+from safeserializer.compression import pack, unpack
 
 print("All options, except 'deprecated' and 'pickle' are unable to handle np.object (e.g., DF containing strings).")
 print("Both options are unsafe (deprecated seems to use pickle).")

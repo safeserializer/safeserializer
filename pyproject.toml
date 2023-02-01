@@ -6,13 +6,18 @@ authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
 readme = 'README.md'
 packages = [
-    { include = "lazydf", from = "src" }
+    { include = "safeserializer", from = "src" }
 ]
 
 [tool.poetry.dependencies]
 python = "^3.10,<4.0"
 orjson = "^3.7.8"
 pymongo = "^4.2.0"  # Needed because it includes bson
+# Optional dependencies.
+lz4 = { version = "^4.0.2", optional = true }
+
+[tool.poetry.extras]    #[tool.poetry.group.extras.dependencies]
+full = ["lz4"]
 
 [tool.poetry.dev-dependencies]
 pdoc3 = "^0.10.0"
@@ -24,11 +29,6 @@ black = "^22.6.0"
 flake8 = "^4.0.1"
 click = "8.0.4"
 pandas = "^1.4.3"
-# Optional dependencies.
-lz4 = { version = "^4.0.2", optional = true }
-
-[tool.poetry.extras]    #[tool.poetry.group.extras.dependencies]
-full = ["lz4"]
 
 [tool.poetry.group.dev.dependencies]
 pyarrow = "^11.0.0"

@@ -31,13 +31,13 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install from PyPI
-pip install lazydf
+pip install safeserializer
 ```
 
 ### from source
 ```bash
 git clone https://github.com/lazydf/lazydf
-cd lazydf
+cd safeserializer
 poetry install
 ```
 
