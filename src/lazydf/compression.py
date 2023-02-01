@@ -19,13 +19,11 @@
 #  works or verbatim, obfuscated, compiled or rewritten versions of any
 #  part of this work is illegal and unethical regarding the effort and
 #  time spent here.
-import json
 import pickle
-from importlib import import_module
 
 import bson
 from bson import InvalidDocument
-from orjson import OPT_SORT_KEYS, orjson, dumps
+from orjson import orjson
 
 
 def topickle(obj, ensure_determinism):
@@ -62,9 +60,6 @@ def frompickle(blob):
         return dill.loads(blob)
 
 
-m = {"<class 'pandas.core.frame.DataFrame'>": b"00pddf_", "<class 'pandas.core.series.Series'>": b"00pdsr_"}
-
-
 def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     if isinstance(obj, bytes):
         return obj
@@ -82,9 +77,25 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     klass = str(obj.__class__)
     if klass in ["<class 'numpy.ndarray'>"]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
-    if klass in ["<class 'pandas.core.frame.DataFrame'>", "<class 'pandas.core.series.Series'>"]:
-        return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback, m[klass])
-    if isinstance(obj, list):
+    if klass == "<class 'pandas.core.series.Series'>":
+        try:
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, False)
+        except Exception as e:
+            if str(e).startswith("Please enable 'unsafe_fallback'"):
+                try:
+                    return b"00pdsr_" + obj.to_frame("0").to_orc()
+                except:
+                    pass
+    elif klass == "<class 'pandas.core.frame.DataFrame'>":
+        try:
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, False)
+        except Exception as e:
+            if str(e).startswith("Please enable 'unsafe_fallback'"):
+                try:
+                    return b"00pddf_" + obj.to_orc()
+                except:
+                    pass
+    elif isinstance(obj, list):
         lst_of_bins = []
         for o in obj:
             lst_of_bins.append(traversal_enc(o, ensure_determinism, unsafe_fallback))
@@ -107,13 +118,13 @@ def traversal_dec(dump):
         if header == b"nmpy_":
             return deserialize_numpy(blob)
         if header == b"pddf_":
-            from pandas import DataFrame
-
-            return DataFrame(deserialize_numpy(blob))
+            import pandas as pd
+            from io import BytesIO
+            return pd.read_orc(BytesIO(blob))
         if header == b"pdsr_":
-            from pandas import Series
-
-            return Series(deserialize_numpy(blob))
+            import pandas as pd
+            from io import BytesIO
+            return pd.read_orc(BytesIO(blob)).squeeze()
         if header == b"trav_":
             return traversal_dec(bson.decode(blob)["_"])
         if header in [b"pckl_", b"dill_"]:
@@ -180,8 +191,8 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_")
         if obj.dtype in [np.dtype(object)]:
             if unsafe_fallback:
                 return topickle(obj, ensure_determinism)
-            raise Exception(f"Cannot handle this ndarray dtype: '{np.dtype(object)}'")
-
+            raise Exception(f"Please enable 'unsafe_fallback' or handle numpy types."
+                            f"Cannot handle this ndarray dtype: '{obj.dtype}'")
         dims = str(len(obj.shape))
         dtype = str(obj.dtype)
         rest_of_header = f"§{dims}§{dtype}§".encode() + integers2bytes(obj.shape)
@@ -189,7 +200,9 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_")
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
         return prefix + header + obj.data.tobytes()
-    raise Exception(f"Cannot handle this type '{type(obj)}', check its shape or dtype")
+    if unsafe_fallback:
+        return topickle(obj, ensure_determinism)
+    raise Exception(f"Please enable 'unsafe_fallback'. Cannot handle this type '{type(obj)}'.")
 
 
 def deserialize_numpy(blob):
@@ -198,7 +211,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -218,8 +231,7 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
-
+    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
 
 ########################################################################################
 ########################################################################################

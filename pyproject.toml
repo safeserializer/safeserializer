@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "lazydf"
-version = "0.220726.3"
+name = "safeserializer"
+version = "0.230201.0"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
@@ -23,9 +23,15 @@ ipython = "^8.4.0"
 black = "^22.6.0"
 flake8 = "^4.0.1"
 click = "8.0.4"
-lz4 = "^4.0.2"
-numpy = "^1.23.1"
 pandas = "^1.4.3"
+# Optional dependencies.
+lz4 = { version = "^4.0.2", optional = true }
+
+[tool.poetry.extras]    #[tool.poetry.group.extras.dependencies]
+full = ["lz4"]
+
+[tool.poetry.group.dev.dependencies]
+pyarrow = "^11.0.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
