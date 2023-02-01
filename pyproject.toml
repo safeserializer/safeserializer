@@ -15,11 +15,13 @@ orjson = "^3.7.8"
 pymongo = "^4.2.0"  # Needed because it includes bson
 # Optional dependencies.
 lz4 = { version = "^4.0.2", optional = true }
+pandas = { version = "^1.4.3", optional = true }
+dill = { version ="^0.3.6", optional = true }
 
 [tool.poetry.extras]    #[tool.poetry.group.extras.dependencies]
-full = ["lz4"]
+full = ["lz4", "pandas", "dill"]
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pdoc3 = "^0.10.0"
 autoreadme = "^0.2102.20"
 pytest = "^7.1.2"
@@ -28,9 +30,6 @@ ipython = "^8.4.0"
 black = "^22.6.0"
 flake8 = "^4.0.1"
 click = "8.0.4"
-pandas = "^1.4.3"
-
-[tool.poetry.group.dev.dependencies]
 pyarrow = "^11.0.0"
 
 [build-system]

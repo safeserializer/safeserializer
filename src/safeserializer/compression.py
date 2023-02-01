@@ -27,34 +27,47 @@ from orjson import orjson
 
 
 def topickle(obj, ensure_determinism):
+    """
+    >>> f = lambda :None  # doctest: +SKIP
+    >>> du = topickle({"a": [3, f]}, ensure_determinism=False)  # doctest: +SKIP
+    >>> res = frompickle(du)  # doctest: +SKIP
+    >>> res["a"][1]() is None  # doctest: +SKIP
+    True
+    >>> frompickle(topickle({"a": [3, None]}, ensure_determinism=True))
+    {'a': [3, None]}
+    """
     try:
-        try:
-            prefix = b"05pckl_"
-            dump = pickle.dumps(obj, protocol=5)
-        except Exception as e:
-            if ensure_determinism:  # pragma: no cover
-                print(e)
-                raise NondeterminismException("Cannot serialize deterministically.")
-            import dill
+        prefix = b"05pckl_"
+        dump = pickle.dumps(obj, protocol=5)
+    except Exception as e:  # pragma: no cover
+        if ensure_determinism:
+            print(e)
+            raise NondeterminismException("Cannot serialize deterministically.")
+        import dill
 
+        try:
             prefix = b"05dill_"
             dump = dill.dumps(obj, protocol=5)
-
-        blob = prefix + dump
-        return blob
-    except KeyError as e:  # pragma: no cover
-        if str(e) == "'__getstate__'":  # pragma: no cover
-            raise Exception("Unpickable value:", type(obj))
-        else:
-            raise e
+        except KeyError as e:
+            if str(e) == "'__getstate__'":
+                raise Exception("Unpickable value:", type(obj))
+            else:
+                raise e
+    blob = prefix + dump
+    return blob
 
 
 def frompickle(blob):
+    """
+    >>> du = frompickle(b'05dill_\\x80\\x05\\x955\\x04\\x00\\x00\\x00\\x00\\x00\\x00}\\x94\\x8c\\x01a\\x94]\\x94(K\\x03\\x8c\\ndill._dill\\x94\\x8c\\x10_create_function\\x94\\x93\\x94(h\\x03\\x8c\\x0c_create_code\\x94\\x93\\x94(C\\x00\\x94K\\x00K\\x00K\\x00K\\x00K\\x01KCC\\x04d\\x00S\\x00\\x94N\\x85\\x94))\\x8c\\x17<doctest frompickle[0]>\\x94\\x8c\\x08<lambda>\\x94K\\x01C\\x02\\x04\\x00\\x94))t\\x94R\\x94}\\x94\\x8c\\x08__name__\\x94\\x8c\\x0bcompression\\x94sh\\x0cNNt\\x94R\\x94}\\x94}\\x94\\x8c\\x0f__annotations__\\x94}\\x94s\\x86\\x94bh\\x10(h\\x11h\\x12\\x8c\\x07__doc__\\x94N\\x8c\\x0b__package__\\x94\\x8c\\x00\\x94\\x8c\\n__loader__\\x94\\x8c\\x1a_frozen_importlib_external\\x94\\x8c\\x10SourceFileLoader\\x94\\x93\\x94)\\x81\\x94}\\x94(\\x8c\\x04name\\x94h\\x12\\x8c\\x04path\\x94\\x8c?/home/davi/git/safeserializer/src/safeserializer/compression.py\\x94ub\\x8c\\x08__spec__\\x94\\x8c\\x11_frozen_importlib\\x94\\x8c\\nModuleSpec\\x94\\x93\\x94)\\x81\\x94}\\x94(h#h\\x12\\x8c\\x06loader\\x94h!\\x8c\\x06origin\\x94h%\\x8c\\x0cloader_state\\x94N\\x8c\\x1asubmodule_search_locations\\x94N\\x8c\\r_set_fileattr\\x94\\x88\\x8c\\x07_cached\\x94\\x8cX/home/davi/git/safeserializer/src/safeserializer/__pycache__/compression.cpython-310.pyc\\x94\\x8c\\r_initializing\\x94\\x89ub\\x8c\\x08__file__\\x94h%\\x8c\\n__cached__\\x94h2\\x8c\\x0c__builtins__\\x94cbuiltins\\n__dict__\\n\\x8c\\x06pickle\\x94h\\x03\\x8c\\x0e_import_module\\x94\\x93\\x94h7\\x85\\x94R\\x94\\x8c\\x04bson\\x94h9h<\\x85\\x94R\\x94\\x8c\\x0fInvalidDocument\\x94\\x8c\\x0bbson.errors\\x94h?\\x93\\x94\\x8c\\x06orjson\\x94h9\\x8c\\rorjson.orjson\\x94\\x85\\x94R\\x94\\x8c\\x08topickle\\x94h\\x12hF\\x93\\x94\\x8c\\nfrompickle\\x94h\\x12hH\\x93\\x94\\x8c\\rtraversal_enc\\x94h\\x12hJ\\x93\\x94\\x8c\\rtraversal_dec\\x94h\\x12hL\\x93\\x94\\x8c\\x04pack\\x94h\\x12hN\\x93\\x94\\x8c\\x06unpack\\x94h\\x12hP\\x93\\x94\\x8c\\x17NondeterminismException\\x94h\\x12hR\\x93\\x94\\x8c\\x0fserialize_numpy\\x94h\\x12hT\\x93\\x94\\x8c\\x11deserialize_numpy\\x94h\\x12hV\\x93\\x94\\x8c\\x0eintegers2bytes\\x94h\\x12hX\\x93\\x94\\x8c\\x0ebytes2integers\\x94h\\x12hZ\\x93\\x94u0es.')  # doctest: +SKIP
+    >>> du["a"][1]() is None  # doctest: +SKIP
+    True
+    """
     prefix = blob[:7]
     blob = blob[7:]
     if prefix == b"05pckl_":
         return pickle.loads(blob)
-    elif prefix == b"05dill_":
+    elif prefix == b"05dill_":  # pragma: no cover
         import dill
 
         return dill.loads(blob)
@@ -79,7 +92,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
     if klass == "<class 'pandas.core.series.Series'>":
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False)
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b"00npsr_")
         except Exception as e:
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 try:
@@ -88,7 +101,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
                     pass
     elif klass == "<class 'pandas.core.frame.DataFrame'>":
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False)
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b"00npdf_")
         except Exception as e:
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 try:
@@ -117,14 +130,24 @@ def traversal_dec(dump):
             return int(blob.decode())
         if header == b"nmpy_":
             return deserialize_numpy(blob)
-        if header == b"pddf_":
-            import pandas as pd
-            from io import BytesIO
-            return pd.read_orc(BytesIO(blob))
         if header == b"pdsr_":
             import pandas as pd
             from io import BytesIO
+
             return pd.read_orc(BytesIO(blob)).squeeze()
+        if header == b"pddf_":
+            import pandas as pd
+            from io import BytesIO
+
+            return pd.read_orc(BytesIO(blob))
+        if header == b"npsr_":
+            from pandas import Series
+
+            return Series(deserialize_numpy(blob))
+        if header == b"npdf_":
+            from pandas import DataFrame
+
+            return DataFrame(deserialize_numpy(blob))
         if header == b"trav_":
             return traversal_dec(bson.decode(blob)["_"])
         if header in [b"pckl_", b"dill_"]:
@@ -191,8 +214,7 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b"00nmpy_")
         if obj.dtype in [np.dtype(object)]:
             if unsafe_fallback:
                 return topickle(obj, ensure_determinism)
-            raise Exception(f"Please enable 'unsafe_fallback' or handle numpy types."
-                            f"Cannot handle this ndarray dtype: '{obj.dtype}'")
+            raise Exception(f"Please enable 'unsafe_fallback' or handle numpy types." f"Cannot handle this ndarray dtype: '{obj.dtype}'")
         dims = str(len(obj.shape))
         dtype = str(obj.dtype)
         rest_of_header = f"§{dims}§{dtype}§".encode() + integers2bytes(obj.shape)
@@ -211,7 +233,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -231,7 +253,8 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
+    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
+
 
 ########################################################################################
 ########################################################################################
