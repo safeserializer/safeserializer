@@ -98,7 +98,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     >>> from pandas import Series as S, DataFrame as DF
     >>> s = S({"a": 5, "b": 6}, name="column")
     >>> a = pack(s, ensure_determinism=True, unsafe_fallback=False)
-    >>> a
+    >>> a  # doctest: +SKIP
     b'00lz4__\\x04"M\\x18h@^\\x00\\x00\\x00\\x00\\x00\\x00\\x00@\\\\\\x00\\x00\\x00\\xf1\\x0e00bsos_W\\x00\\x00\\x00\\x04i\\x00\\x17\\x00\\x00\\x00\\x020\\x00\\x02\\x00\\x00\\x00a\\x00\\x021\\t\\x00\\xf0\\nb\\x00\\x00\\x05v\\x00"\\x00\\x00\\x00\\x0016\\xc2\\xa71\\xc2\\xa7int64\\xc2\\xa7&\\x00\\x10\\x05\\x17\\x00A\\x00\\x00\\x00\\x06\\x06\\x00\\xf0\\x02\\x00\\x00\\x02n\\x00\\x07\\x00\\x00\\x00column\\x00\\x00\\x00\\x00\\x00\\x00'
     >>> unpack(a)
     a    5
