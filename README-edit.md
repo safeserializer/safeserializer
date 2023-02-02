@@ -10,8 +10,8 @@
 
 # safeserializer - Serialization of nested objects to binary format 
 An alternative to pickle, but may use pickle if safety is not needed.
-
 Principle: Start from the simplest and safest possible and try to be fast.
+Serialization is attempted in the following order:
 * try orjson
   * `dict`, `str`, `int`, etc
 * try bson
@@ -24,6 +24,7 @@ Principle: Start from the simplest and safest possible and try to be fast.
 * resort to pickle if allowed (`unsafe_fallback=True`)
 * resort to dill if allowed (`ensure_determinism=False`).
 
+Top level tuples are preserved, insted of converted to lists (e.g., by bson).
 
 
 ## Python installation
@@ -34,18 +35,20 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install from PyPI
-pip install safeserializer
+pip install safeserializer[full]
 ```
 
 ### from source
 ```bash
 git clone https://github.com/safeserializer/safeserializer
 cd safeserializer
-poetry install
+poetry install --extras full
 ```
 
 ### Examples
-<<basic>>
+<<safe>>
+
+<<unsafe>>
 
 
 

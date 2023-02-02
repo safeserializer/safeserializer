@@ -142,12 +142,12 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
 
     try:
         return b"00json_" + orjson.dumps(obj)
-    except TypeError as error:
-        pass
+    except TypeError as e:
+        error = str(e)
     try:
         return b"00bson_" + bson.encode({"_": obj})
-    except InvalidDocument as error:
-        pass
+    except InvalidDocument as e:
+        error = str(e)
     except OverflowError as o:
         if "8-byte ints" in str(o) and isinstance(obj, int):
             return b"00bint_" + str(obj).encode()
@@ -180,11 +180,10 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         except Exception as e:
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 from pandas import DataFrame
-
                 try:
                     return b"00prqs_" + obj.to_frame(obj.name or "_none_").to_parquet()  # .convert_dtypes().to_parquet()
-                except Exception as error:
-                    pass
+                except Exception as e:
+                    error = str(e)
     elif klass == "<class 'pandas.core.frame.DataFrame'>":
         try:
             return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback=False, prefix=b"00npdf_")
@@ -192,8 +191,8 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 try:
                     return b"00prqd_" + obj.to_parquet()
-                except Exception as error:
-                    pass
+                except Exception as e:
+                    error = str(e)
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
     raise Exception(f"Cannot safely pack {type(obj)}: {error}")  # pragma: no cover
