@@ -136,10 +136,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     if isinstance(obj, bytes):
         return obj
     if isinstance(obj, tuple):
-        lst_of_binaries = tuple(
-            traversal_enc(o, ensure_determinism, unsafe_fallback)
-            for o in obj
-        )
+        lst_of_binaries = tuple(traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj)
         return b"00tupl_" + bson.encode({"_": lst_of_binaries})
 
     try:
@@ -155,10 +152,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
             return b"00bint_" + str(obj).encode()
 
     if isinstance(obj, list):
-        lst_of_binaries = [
-            traversal_enc(o, ensure_determinism, unsafe_fallback)
-            for o in obj
-        ]
+        lst_of_binaries = [traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj]
         return b"00list_" + bson.encode({"_": lst_of_binaries})
     elif isinstance(obj, dict):
         dic_of_binaries = {}
@@ -167,7 +161,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         for k, o in obj.items():
             if hexfy:
                 bk = traversal_enc(k, ensure_determinism, unsafe_fallback)
-                k = hexlify(bk).decode('utf-8')
+                k = hexlify(bk).decode("utf-8")
             dic_of_binaries[k] = traversal_enc(o, ensure_determinism, unsafe_fallback)
         return prefix + bson.encode(dic_of_binaries)
 
@@ -185,6 +179,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
         except Exception as e:
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 from pandas import DataFrame
+
                 try:
                     return b"00prqs_" + obj.to_frame(obj.name or "_none_").to_parquet()  # .convert_dtypes().to_parquet()
                 except Exception as e:
@@ -219,12 +214,14 @@ def traversal_dec(dump):
         if header == b"prqs_":
             import pandas as pd
             from io import BytesIO
+
             obj = pd.read_parquet(BytesIO(blob)).squeeze()
             if obj.name == "_none_":
                 obj.rename(None, inplace=True)
             return obj
         if header == b"bsos_":
             from pandas import Series
+
             dec = bson.decode(blob)
             obj = deserialize_numpy(dec["v"])
             kwargs = {"name": dec["n"]} if "n" in dec else {}
@@ -232,9 +229,11 @@ def traversal_dec(dump):
         if header == b"prqd_":
             import pandas as pd
             from io import BytesIO
+
             return pd.read_parquet(BytesIO(blob))
         if header == b"npdf_":
             from pandas import DataFrame
+
             return DataFrame(deserialize_numpy(blob))
         if header == b"list_":
             return traversal_dec(bson.decode(blob)["_"])
@@ -244,7 +243,7 @@ def traversal_dec(dump):
             return traversal_dec(bson.decode(blob))
         if header == b"dicB_":
             decoded = bson.decode(blob).items()
-            return {traversal_dec(unhexlify(k.encode('utf-8'))): traversal_dec(v) for k, v in decoded}
+            return {traversal_dec(unhexlify(k.encode("utf-8"))): traversal_dec(v) for k, v in decoded}
         if header in [b"pckl_", b"dill_"]:
             return frompickle(dump)
         return dump
@@ -365,7 +364,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -385,7 +384,8 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
+    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
+
 
 ########################################################################################
 ########################################################################################

@@ -26,7 +26,7 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">#  Copyright (c) 2021. Davi Pereira dos Santos
+<pre><code class="python">#  Copyright (c) 2023. Davi Pereira dos Santos
 #  This file is part of the safeserializer project.
 #  Please respect the license - more about this in the section (*) below.
 #
@@ -48,6 +48,7 @@
 #  part of this work is illegal and unethical regarding the effort and
 #  time spent here.
 import pickle
+from binascii import hexlify, unhexlify
 
 import bson
 from bson import InvalidDocument
@@ -56,9 +57,11 @@ from orjson import orjson
 
 def topickle(obj, ensure_determinism):
     &#34;&#34;&#34;
-    &gt;&gt;&gt; du = topickle({&#34;a&#34;: [3, lambda :None]}, ensure_determinism=False)
+    &gt;&gt;&gt; f = print
+    &gt;&gt;&gt; du = topickle({&#34;a&#34;: [3, f]}, ensure_determinism=False)
     &gt;&gt;&gt; res = frompickle(du)
     &gt;&gt;&gt; res[&#34;a&#34;][1]() is None
+    &lt;BLANKLINE&gt;
     True
     &gt;&gt;&gt; frompickle(topickle({&#34;a&#34;: [3, None]}, ensure_determinism=True))
     {&#39;a&#39;: [3, None]}
@@ -66,8 +69,8 @@ def topickle(obj, ensure_determinism):
     try:
         prefix = b&#34;05pckl_&#34;
         dump = pickle.dumps(obj, protocol=5)
-    except Exception as e:
-        if ensure_determinism:  # pragma: no cover
+    except Exception as e:  # pragma: no cover
+        if ensure_determinism:
             print(e)
             raise NondeterminismException(&#34;Cannot serialize deterministically.&#34;)
         import dill
@@ -75,8 +78,8 @@ def topickle(obj, ensure_determinism):
         try:
             prefix = b&#34;05dill_&#34;
             dump = dill.dumps(obj, protocol=5)
-        except KeyError as e:  # pragma: no cover
-            if str(e) == &#34;&#39;__getstate__&#39;&#34;:  # pragma: no cover
+        except KeyError as e:
+            if str(e) == &#34;&#39;__getstate__&#39;&#34;:
                 raise Exception(&#34;Unpickable value:&#34;, type(obj))
             else:
                 raise e
@@ -85,19 +88,85 @@ def topickle(obj, ensure_determinism):
 
 
 def frompickle(blob):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; du = frompickle(b&#39;05pckl_\\x80\\x05\\x95#\\x00\\x00\\x00\\x00\\x00\\x00\\x00}\\x94\\x8c\\x01a\\x94]\\x94(K\\x03\\x8c\\x08builtins\\x94\\x8c\\x05print\\x94\\x93\\x94es.&#39;)
+    &gt;&gt;&gt; du[&#34;a&#34;][1]() is None
+    &lt;BLANKLINE&gt;
+    True
+    &#34;&#34;&#34;
     prefix = blob[:7]
     blob = blob[7:]
     if prefix == b&#34;05pckl_&#34;:
         return pickle.loads(blob)
-    elif prefix == b&#34;05dill_&#34;:
+    elif prefix == b&#34;05dill_&#34;:  # pragma: no cover
         import dill
 
         return dill.loads(blob)
 
 
 def traversal_enc(obj, ensure_determinism, unsafe_fallback):
+    &#34;&#34;&#34;
+    TODO: Fix nested tuples being converted to lists by json?
+        &#39;tuple&#39; should make orjson/bson raise an exception like it would happen for hditc,
+        it would be easy to handle like with other non built-in types.
+    &gt;&gt;&gt; unpack(pack([&#34;a&#34;, [&#34;3&#34;, 4], &#34;b&#34;, 4], ensure_determinism=False, unsafe_fallback=False))
+    [&#39;a&#39;, [&#39;3&#39;, 4], &#39;b&#39;, 4]
+    &gt;&gt;&gt; unpack(pack([{0: [{&#34;3&#34;:4}], &#34;b&#34;: b&#34;b&#34;}], ensure_determinism=False, unsafe_fallback=False))
+    [{0: [{&#39;3&#39;: 4}], &#39;b&#39;: b&#39;b&#39;}]
+    &gt;&gt;&gt; du = pack(True, ensure_determinism=False, unsafe_fallback=True, compressed=False)
+    &gt;&gt;&gt; du
+    b&#39;00json_true&#39;
+    &gt;&gt;&gt; unpack(du)
+    True
+    &gt;&gt;&gt; unpack(pack([True], ensure_determinism=False, unsafe_fallback=True, compressed=False))
+    [True]
+    &gt;&gt;&gt; unpack(pack([{&#34;a&#34;: b&#34;some bytes&#34;, &#34;b&#34;:print}], ensure_determinism=False, unsafe_fallback=True))[0][&#34;a&#34;]
+    b&#39;some bytes&#39;
+    &gt;&gt;&gt; unpack(pack(b&#34;some bytes&#34;, ensure_determinism=False, unsafe_fallback=True))
+    b&#39;some bytes&#39;
+    &gt;&gt;&gt; unpack(pack(99999999999999999999999999999999999999999, ensure_determinism=False, unsafe_fallback=True))
+    99999999999999999999999999999999999999999
+    &gt;&gt;&gt; from pandas import Series as S, DataFrame as DF
+    &gt;&gt;&gt; s = S({&#34;a&#34;: 5, &#34;b&#34;: 6}, name=&#34;column&#34;)
+    &gt;&gt;&gt; a = pack(s, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; a  # doctest: +SKIP
+    b&#39;00lz4__\\x04&#34;M\\x18h@^\\x00\\x00\\x00\\x00\\x00\\x00\\x00@\\\\\\x00\\x00\\x00\\xf1\\x0e00bsos_W\\x00\\x00\\x00\\x04i\\x00\\x17\\x00\\x00\\x00\\x020\\x00\\x02\\x00\\x00\\x00a\\x00\\x021\\t\\x00\\xf0\\nb\\x00\\x00\\x05v\\x00&#34;\\x00\\x00\\x00\\x0016\\xc2\\xa71\\xc2\\xa7int64\\xc2\\xa7&amp;\\x00\\x10\\x05\\x17\\x00A\\x00\\x00\\x00\\x06\\x06\\x00\\xf0\\x02\\x00\\x00\\x02n\\x00\\x07\\x00\\x00\\x00column\\x00\\x00\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(a)
+    a    5
+    b    6
+    Name: column, dtype: int64
+    &gt;&gt;&gt; s = S({&#34;a&#34;: &#34;5&#34;, &#34;b&#34;: &#34;6&#34;})
+    &gt;&gt;&gt; b = pack(s, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; b
+    b&#39;00lz4__\\x04&#34;M\\x18h@\\x1d\\x08\\x00\\x00\\x00\\x00\\x00\\x00\\xec\\xe2\\x04\\x00\\x00\\xf0\\x1100prqs_PAR1\\x15\\x04\\x15\\x14\\x15\\x18L\\x15\\x04\\x15\\x00\\x12\\x00\\x00\\n$\\x01\\x00\\x00\\x005\\x05\\x00\\xf696\\x15\\x00\\x15\\x12\\x15\\x16,\\x15\\x04\\x15\\x10\\x15\\x06\\x15\\x06\\x1c6\\x00(\\x016\\x18\\x015\\x00\\x00\\x00\\t \\x02\\x00\\x00\\x00\\x04\\x01\\x01\\x03\\x02&amp;\\x88\\x01\\x1c\\x15\\x0c\\x195\\x10\\x00\\x06\\x19\\x18\\x06_none_\\x15\\x02\\x16\\x04\\x16x\\x16\\x80\\x01&amp;&lt;&amp;\\x088\\x00\\x10\\x19L\\x00\\x90\\x00\\x15\\x02\\x00\\x15\\x00\\x15\\x10\\x15B\\x00\\x0f}\\x00\\x01\\x10a}\\x00\\x1fb}\\x00\\x01Kb\\x18\\x01a}\\x00&amp;\\x82\\x03}\\x00\\xf7\\x02\\x11__index_level_0_\\x88\\x00Q\\xb6\\x02&amp;\\x82\\x02\\x8a\\x00\\x01E\\x00\\x0f\\x8a\\x00\\x01\\xf4\\x04\\x19&lt;5\\x00\\x18\\x06schema\\x15\\x04\\x00\\x15\\x0c%\\x02\\xd0\\x00b%\\x00L\\x1c\\x00\\x00\\x13\\x00\\x0ef\\x00\\x03\\x1e\\x00o\\x16\\x04\\x19\\x1c\\x19,\\x0f\\x01*\\x0f\\xcf\\x007\\xf2\\r\\x16\\xf0\\x01\\x16\\x04&amp;\\x08\\x16\\x80\\x02\\x14\\x00\\x00\\x19,\\x18\\x06pandas\\x18\\xfc\\x03{&#34;%\\x01\\xcdcolumns&#34;: [&#34;9\\x01R&#34;], &#34;&#34;\\x00\\x02T\\x01\\x11e)\\x00\\xfa\\x07{&#34;name&#34;: null, &#34;field_\\x14\\x00\\x02i\\x00@_typ)\\x00\\xf5\\x02&#34;unicode&#34;, &#34;numpy\\x19\\x00`object\\x18\\x00\\xf6\\x12metadata&#34;: {&#34;encoding&#34;: &#34;UTF-8&#34;}}\\x8d\\x00\\n\\x86\\x00\\x12&#34;n\\x02\\x00D\\x00\\t\\x8a\\x00\\x07\\x18\\x00\\x0f\\x8e\\x00*\\x00\\xe6\\x00?}, \\xf6\\x00\\n\\x0f&lt;\\x01\\x00\\x0fw\\x002\\x01\\xf4\\x00areator\\x18\\x01plibrary\\x17\\x01ppyarrow\\xf7\\x00pversion\\x16\\x00\\x8611.0.0&#34;}~\\x00\\x08\\x1d\\x00\\xf2\\x00.5.3&#34;}\\x00\\x18\\x0cARROW:\\xe6\\x02@\\x18\\xe0\\x07/\\x01\\x00\\x82+ACAAAQA\\x01\\x00\\xf1\\x00KAA4ABgAFAAgACg\\x15\\x00)BB \\x00\\x10w\\x15\\x00\\x15E \\x00 DQ@\\x00\\x10E\\x15\\x00\\x02F\\x00\\x01 \\x00\\x10I\\x08\\x00\\x11B\\x08\\x00\\x01E\\x00\\x10I \\x00\\x02%\\x00\\xf4FYAAABwYW5kYXMAAPwBAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\\x00\\xf0\\x01lcyI6IFt7Im5hbWUD\\x00\\xf3\\x15udWxsLCAiZmllbGRfbmFtZSI6IG51bGwsICJ\\x90\\x00aNfdHlw\\x1c\\x00\\xf0\\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\\x00\\xa2Aib2JqZWN0 \\x00\\xf0\\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\\x94\\x00\\xd9CJVVEYtOCJ9fV\\xbc\\x00\\x10z0\\x00EW3si\\x98\\x00\\xbfCJfbm9uZV8i\\xb8\\x00\\x02\\x0b \\x00\\x88cGFuZGFz\\x9c\\x00\\xb0dW5pY29kZSI\\xe0\\x00\\xd0udW1weV90eXBlp\\x00\\xa1Im9iamVjdC \\x00\\xa5tZXRhZGF0Y\\x18\\x01@x9LC\\x98\\x01\\x0fH\\x01\\x10TCJfX2\\xc0\\x01\\xc1xldmVsXzBfXy\\\\\\x00\\x0f\\\\\\x01&gt;\\x80bnVsbH1d\\x1c\\x01\\xf0\\nY3JlYXRvciI6IHsibGlicmFye\\xc8\\x00\\xb1CJweWFycm93\\xa4\\x01\\xa1nZlcnNpb24\\xc0\\x01\\xa1MTEuMC4wIn\\x90\\x01\\x06\\xa8\\x00\\x80mVyc2lvbT\\x00\\xb0CIxLjUuMyJ9\\xc4\\x02\\x02\\xcb\\x02 BM\\n\\x00\\x10B\\x05\\x00\\xb1Mz///8AAAEF\\xe0\\x02\\x11CK\\x03\\x01\\x0b\\x00\\x01\\x02\\x00\\x10B\\x0b\\x00\\x1fB \\x01\\x03`wAAAMj@\\x00@QABQ\\x89\\x03`GAAcAD9\\x00\\x17BE\\x00!QUU\\x00\\x10H\\x18\\x00\\x02e\\x03\\x01\\x02\\x00\\x10B[\\x03\\x94F9ub25lXw3\\x00\\x01+\\x00\\x01\\x02\\x00\\xf1\\x00\\x00\\x18 parquet-cpp-9\\x04\\x13 \\x19\\x04\\x12 3\\x04P\\x19,\\x1c\\x00\\x00\\xdf\\x06\\x80\\x03\\x07\\x00\\x00PAR1\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(b)
+    a    5
+    b    6
+    dtype: object
+    &gt;&gt;&gt; s = S({&#34;a&#34;: &#34;5&#34;, &#34;b&#34;: 6}, name=&#34;column&#34;)
+    &gt;&gt;&gt; unpack(pack(s, ensure_determinism=True, unsafe_fallback=True))
+    a    5
+    b    6
+    Name: column, dtype: object
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,&#34;6&#34;,&#34;7&#34;], &#34;b&#34;: [1,2,3]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;])
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
+       a  b
+    x  5  1
+    y  6  2
+    z  7  3
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,6,&#34;7&#34;], &#34;b&#34;: [&#34;1&#34;,&#34;2&#34;,&#34;3&#34;]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;])
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=True))
+       a  b
+    x  5  1
+    y  6  2
+    z  7  3
+    &#34;&#34;&#34;
     if isinstance(obj, bytes):
         return obj
+    if isinstance(obj, tuple):
+        lst_of_binaries = tuple(traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj)
+        return b&#34;00tupl_&#34; + bson.encode({&#34;_&#34;: lst_of_binaries})
+
     try:
         return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
@@ -109,35 +178,53 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     except OverflowError as o:
         if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
             return b&#34;00bint_&#34; + str(obj).encode()
+
+    if isinstance(obj, list):
+        lst_of_binaries = [traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj]
+        return b&#34;00list_&#34; + bson.encode({&#34;_&#34;: lst_of_binaries})
+    elif isinstance(obj, dict):
+        dic_of_binaries = {}
+        hexfy = any(not isinstance(k, str) for k in obj.keys())
+        prefix = b&#34;00dicB_&#34; if hexfy else b&#34;00dict_&#34;
+        for k, o in obj.items():
+            if hexfy:
+                bk = traversal_enc(k, ensure_determinism, unsafe_fallback)
+                k = hexlify(bk).decode(&#34;utf-8&#34;)
+            dic_of_binaries[k] = traversal_enc(o, ensure_determinism, unsafe_fallback)
+        return prefix + bson.encode(dic_of_binaries)
+
     klass = str(obj.__class__)
     if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
-    if klass == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
+    elif klass == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;00npsr_&#34;)
+            idx = obj.index.values.tolist()
+            vals = serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;&#34;)
+            dic = {&#34;i&#34;: idx, &#34;v&#34;: vals}
+            if obj.name is not None:
+                dic[&#34;n&#34;] = obj.name
+            return b&#34;00bsos_&#34; + bson.encode(dic)
         except Exception as e:
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
+                from pandas import DataFrame
+
                 try:
-                    return b&#34;00pdsr_&#34; + obj.to_frame(&#34;0&#34;).to_orc()
-                except:
+                    return b&#34;00prqs_&#34; + obj.to_frame(obj.name or &#34;_none_&#34;).to_parquet()  # .convert_dtypes().to_parquet()
+                except Exception as e:
                     pass
     elif klass == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;00npdf_&#34;)
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback=False, prefix=b&#34;00npdf_&#34;)
         except Exception as e:
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
                 try:
-                    return b&#34;00pddf_&#34; + obj.to_orc()
+                    return b&#34;00prqd_&#34; + obj.to_parquet()
                 except:
                     pass
-    elif isinstance(obj, list):
-        lst_of_bins = []
-        for o in obj:
-            lst_of_bins.append(traversal_enc(o, ensure_determinism, unsafe_fallback))
-        return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)
+    raise Exception(f&#34;Cannot safely pack {type(obj)}.&#34;)  # pragma: no cover
+    # TODO: handle hdict?
 
 
 def traversal_dec(dump):
@@ -152,53 +239,74 @@ def traversal_dec(dump):
             return int(blob.decode())
         if header == b&#34;nmpy_&#34;:
             return deserialize_numpy(blob)
-        if header == b&#34;pdsr_&#34;:
+        if header == b&#34;prqs_&#34;:
             import pandas as pd
             from io import BytesIO
 
-            return pd.read_orc(BytesIO(blob)).squeeze()
-        if header == b&#34;pddf_&#34;:
-            import pandas as pd
-            from io import BytesIO
-
-            return pd.read_orc(BytesIO(blob))
-        if header == b&#34;npsr_&#34;:
+            obj = pd.read_parquet(BytesIO(blob)).squeeze()
+            if obj.name == &#34;_none_&#34;:
+                obj.rename(None, inplace=True)
+            return obj
+        if header == b&#34;bsos_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(blob))
+            dec = bson.decode(blob)
+            obj = deserialize_numpy(dec[&#34;v&#34;])
+            kwargs = {&#34;name&#34;: dec[&#34;n&#34;]} if &#34;n&#34; in dec else {}
+            return Series(obj, dec[&#34;i&#34;], **kwargs)
+        if header == b&#34;prqd_&#34;:
+            import pandas as pd
+            from io import BytesIO
+
+            return pd.read_parquet(BytesIO(blob))
         if header == b&#34;npdf_&#34;:
             from pandas import DataFrame
 
             return DataFrame(deserialize_numpy(blob))
-        if header == b&#34;trav_&#34;:
+        if header == b&#34;list_&#34;:
             return traversal_dec(bson.decode(blob)[&#34;_&#34;])
+        if header == b&#34;tupl_&#34;:
+            return traversal_dec(tuple(bson.decode(blob)[&#34;_&#34;]))
+        if header == b&#34;dict_&#34;:
+            return traversal_dec(bson.decode(blob))
+        if header == b&#34;dicB_&#34;:
+            decoded = bson.decode(blob).items()
+            return {traversal_dec(unhexlify(k.encode(&#34;utf-8&#34;))): traversal_dec(v) for k, v in decoded}
         if header in [b&#34;pckl_&#34;, b&#34;dill_&#34;]:
             return frompickle(dump)
         return dump
-    if isinstance(dump, (int, str, bool)):
-        return dump
+    # if isinstance(dump, (int, str, bool)):
+    #     return dump
+    if isinstance(dump, tuple):
+        return tuple(traversal_dec(d) for d in dump)
     if isinstance(dump, list):
-        lst = []
-        for d in dump:
-            lst.append(traversal_dec(d))
-        return lst
+        return [traversal_dec(d) for d in dump]
     if isinstance(dump, dict):
-        dic = {}
-        for k, v in dump.items():
-            dic[k] = traversal_dec(v)
-        return dic
-    raise Exception(f&#34;Cannot unpack {type(dump)}.&#34;)
+        return {k: traversal_dec(v) for k, v in dump.items()}
+    raise Exception(f&#34;Cannot unpack {type(dump)}.&#34;)  # pragma: no cover
 
 
 def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
     r&#34;&#34;&#34;
+    Serialize &#39;obj&#39; to bytes.
+
+    Attempt to serialize using one of the following options, in this order:
+        orjson
+        bson
+        bigints as str
+        numpy ndarray as raw bytes
+        pandas numeric Series/DataFrame as ndarray raw bytes
+        pandas ill-behaved Series/DataFrame as parquet
+        pickle when &#39;unsafe_fallback=True&#39;
+        dill when &#39;ensure_determinism=False&#39;.
+
     &gt;&gt;&gt; import numpy as np
     &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&#34;x&#34;: b&#34;dsa&#34;}], [b&#34;asd&#34;, 5]]
     &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
     &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
-    &gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False, compressed=False)
     &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
@@ -208,6 +316,11 @@ def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
          0         1
     0  1.0  0.666667
     1  4.0  5.000000
+
+    &gt;&gt;&gt; unpack(pack({&#34;0&#34;: 3, &#34;b&#34;: print}, ensure_determinism=True, unsafe_fallback=True, compressed=False))
+    {&#39;0&#39;: 3, &#39;b&#39;: &lt;built-in function print&gt;}
+    &gt;&gt;&gt; unpack(pack({&#34;0&#34;: 3, &#34;b&#34;: b&#34;b&#34;}, ensure_determinism=True, unsafe_fallback=False, compressed=False))
+    {&#39;0&#39;: 3, &#39;b&#39;: b&#39;b&#39;}
     &#34;&#34;&#34;
     dump = traversal_enc(obj, ensure_determinism, unsafe_fallback)
     if compressed:
@@ -218,6 +331,24 @@ def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
 
 
 def unpack(blob):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; from pandas import DataFrame as DF
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;, &#34;6&#34;, &#34;7&#34;], &#34;b&#34;: [1, 2, 3]}, index=[&#34;x&#34;, &#34;y&#34;, &#34;z&#34;])
+    &gt;&gt;&gt; complex_data = {&#34;a&#34;: b&#34;Some binary content&#34;, (&#34;mixed-types tuple as a key&#34;, 4): 123, &#34;df&#34;: df}
+    &gt;&gt;&gt; complex_data
+    {&#39;a&#39;: b&#39;Some binary content&#39;, (&#39;mixed-types tuple as a key&#39;, 4): 123, &#39;df&#39;:    a  b
+    x  5  1
+    y  6  2
+    z  7  3}
+    &gt;&gt;&gt; dump = pack(complex_data, ensure_determinism=False, unsafe_fallback=False)
+    &gt;&gt;&gt; dump
+    b&#39;00lz4__\\x04&#34;M\\x18h@h\\x0b\\x00\\x00\\x00\\x00\\x00\\x00\\x94\\x95\\x06\\x00\\x00\\xf1*00dicB_a\\x0b\\x00\\x00\\x0530306a736f6e5f226122\\x00\\x13\\x00\\x00\\x00\\x00Some binary content.\\x00\\xd27475706c5f480\\x01\\x00b45f004\\x0c\\x00\\x8000530002\\x05\\x00\\x01\\x02\\x00\\rb\\x00\\xf5\\x07d697865642d74797065732X\\x00`652061\\x12\\x00\\xf4\\x0461206b6579220531000r\\x00\\x0bV\\x00\\x113}\\x00 \\x00\\n\\xb8\\x00\\xa100json_123\\xaf\\x00\\t\\xdd\\x00p46622\\x00b(\\x00\\xf0\\x1100prqd_PAR1\\x15\\x04\\x15\\x1e\\x15&#34;L\\x15\\x06\\x15\\x00\\x12\\x00\\x00\\x0f8\\x01\\x00\\x00\\x005\\x05\\x00\\x106\\x05\\x00\\xf667\\x15\\x00\\x15\\x14\\x15\\x18,\\x15\\x06\\x15\\x10\\x15\\x06\\x15\\x06\\x1c6\\x00(\\x017\\x18\\x015\\x00\\x00\\x00\\n$\\x02\\x00\\x00\\x00\\x06\\x01\\x02\\x03$\\x00&amp;\\x94\\x01\\x1c\\x15\\x0c\\x195\\x10\\x00\\x06\\x19\\x18\\x01a\\x15\\x02\\x16\\x06\\x16\\x84\\x01\\x16\\x8c\\x01&amp;F&amp;\\x085\\x00\\xe0\\x19,\\x15\\x04\\x15\\x00\\x15\\x02\\x00\\x15\\x00\\x15\\x10\\x15?\\x00d\\x15\\x04\\x150\\x15.\\x7f\\x00p\\x18\\x04\\x01\\x00\\t\\x01&lt;\\x19\\x00\\x00\\x02\\x00\\x10\\x03\\x05\\x00 \\x00\\x00.\\x00\\t\\x85\\x00$\\x18\\x08\\x1a\\x00 \\x18\\x08\\xa6\\x00\\x00\\x02\\x00?\\x16\\x00(\\x16\\x00\\x00\\x0c\\xa7\\x00T\\xe2\\x03\\x1c\\x15\\x04\\xa7\\x00\\x11b\\xa7\\x00\\xbf\\xda\\x01\\x16\\xdc\\x01&amp;\\xd0\\x02&amp;\\x86\\x02Y\\x00\\x19\\x0f\\xcb\\x00\\x02\\rJ\\x01\\x10x\\x9f\\x00\\x10y\\x05\\x00\\x1fzJ\\x01\\x01Lz\\x18\\x01x\\xa3\\x00&amp;\\xa8\\x06J\\x01\\xf1\\x03\\x11__index_level_0__\\xb3\\x00\\x02Z\\x01Q\\xda\\x05&amp;\\x9c\\x05\\x91\\x01\\x01G\\x00\\x0f\\x91\\x00\\x01\\xf0\\x0b\\x19L5\\x00\\x18\\x06schema\\x15\\x06\\x00\\x15\\x0c%\\x02\\x18\\x01a%\\x00L\\x1cV\\x01\\x10\\x04\\x0e\\x00\\x12b\\x16\\x00\\x0ej\\x00\\x03&amp;\\x00o\\x16\\x06\\x19\\x1c\\x19&lt;\\xe0\\x01&amp;\\x0fr\\x01J\\x0f,\\x018\\xb0\\x16\\xe2\\x03\\x16\\x06&amp;\\x08\\x16\\xf4\\x03\\x14\\xdc\\x01\\xd2\\x18\\x06pandas\\x18\\xd5\\x04{&#34;\\x83\\x01\\xcdcolumns&#34;: [&#34;\\x97\\x01R&#34;], &#34;&#34;\\x00\\x02\\xb2\\x01\\x11e)\\x00\\xfa\\x07{&#34;name&#34;: null, &#34;field_\\x14\\x00\\x02i\\x00@_typ)\\x00\\xf5\\x02&#34;unicode&#34;, &#34;numpy\\x19\\x00`object\\x18\\x00\\xf6\\x12metadata&#34;: {&#34;encoding&#34;: &#34;UTF-8&#34;}}\\x8d\\x00\\n\\x86\\x00 &#34;a?\\x00\\t\\x85\\x00\\x02\\x13\\x00\\x0f\\x84\\x00*\\x00\\xdc\\x005}, \\xec\\x00.&#34;bf\\x00\\x01\\x13\\x00\\x0bf\\x00Pint64+\\x00\\n\\xe8\\x00\\x05\\x17\\x00\\x07\\xe7\\x00\\x0cc\\x00\\x00\\x10\\x00\\x0cO\\x01\\x0f\\x95\\x01\\x00\\x0et\\x00\\x0f^\\x01\\x1b\\x00g\\x00\\x02M\\x01areatorq\\x01plibraryp\\x01ppyarrow\\xc4\\x00pversion\\x16\\x00\\x8611.0.0&#34;}~\\x00\\x08\\x1d\\x00\\xf2\\x00.5.3&#34;}\\x00\\x18\\x0cARROW:\\x9c\\x03@\\x18\\x98\\t/\\x01\\x00\\x822gDAAAQA\\x01\\x00\\xf1\\x00KAA4ABgAFAAgACg\\x15\\x00)BB \\x00\\x10w\\x15\\x00\\x15E \\x002IwC\\x10\\x00\\x04F\\x00\\x01 \\x00\\x10I\\x08\\x00\\x11B\\x08\\x00\\x01E\\x00\\x10I \\x00\\x10E\\x05\\x00\\xf4GAYAAABwYW5kYXMAAFUCAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\\x00\\xf0\\x01lcyI6IFt7Im5hbWUD\\x00\\xf0\\x11udWxsLCAiZmllbGRfbmFtZSI6IG51bGwH\\x00\\x03\\x90\\x00aNfdHlw\\x1c\\x00\\xf0\\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\\x00\\xa2Aib2JqZWN0 \\x00\\xf0\\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\\x94\\x00\\xe0CJVVEYtOCJ9fV0t\\x00\\x04\\xbc\\x00\\x10z0\\x00EW3si\\x98\\x002CJhT\\x00\\x84ZpZWxkX2\\xcc\\x00PAiYSI&lt;\\x00\\x0f\\xb0\\x00&gt;\\xa9bnVsbH0sIH\\x88\\x00\\x1fi\\x88\\x00\\x06\\x1fi\\x88\\x00\\x06qpbnQ2NC \\x00\\xd0udW1weV90eXBl\\xe8\\x00\\x00\\xe8\\x01?dDY4\\x01\\x02\\x0f\\x84\\x00\\x02\\x06\\xa4\\x01\\xc2maWVsZF9uYW1L\\x00\\x0f\\x1c\\x02\\x05\\x00\\xb0\\x01\\x97nBhbmRhc1|\\x00PnVuaW\\x94\\x01 Ui\\x10\\x02xbnVtcHl\\xf4\\x01\\x82vYmplY3Q \\x00\\xa5WV0YWRhdGEH\\x02\\x04\\xbc\\x01\\x80cmVhdG9y\\xd4\\x00\\xc0eyJsaWJyYXJ5\\x10\\x00\\xb1InB5YXJyb3cH\\x00\\xf9\\x0bdmVyc2lvbiI6ICIxMS4wLjAifS\\xa8\\x00\\x912ZXJzaW9uD\\x00\\xa0jEuNS4zIn06\\x03\\x00\\xa4\\x03!Ah\\n\\x00\\x01`\\x03\\x01K\\x03PmP///\\x0f\\x00!QU\\xc0\\x03\\x10J \\x00\\x05\\xcb\\x030AAE\\x16\\x00\\x1fF$\\x01\\x03\\x00 \\x00\\x01@\\x00`8z///8\\xc3\\x03\\x11CU\\x00\\x10BQ\\x00\\x11A\\x0b\\x00\\x02\\x02\\x00\\x00\\x0b\\x00 Bi\\x0c\\x00@CAAM\\xd0\\x03&#34;Bw\\xd0\\x03\\x01\\x02\\x00\\x11U\\x06\\x00\\xc2QABQACAAGAAc\\xad\\x00\\x12B:\\x00\\x01\\x02\\x00\\x03\\xa0\\x00\\x12G\\r\\x00\\x01\\x06\\x00\\x01\\x02\\x00\\x00\\xa0\\x00\\x10G`\\x00\\x00p\\x001QAB\\x15\\x00\\xf1\\x02==\\x00\\x18 parquet-cpp-\\xf1\\x04\\x13 \\xd1\\x04\\x12 \\xeb\\x04R\\x19&lt;\\x1c\\x00\\x00\\x03\\x00\\xa0\\x00t\\x08\\x00\\x00PAR1\\x00\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(dump)
+    {&#39;a&#39;: b&#39;Some binary content&#39;, (&#39;mixed-types tuple as a key&#39;, 4): 123, &#39;df&#39;:    a  b
+    x  5  1
+    y  6  2
+    z  7  3}
+    &#34;&#34;&#34;
     if blob[:7] == b&#34;00lz4__&#34;:
         import lz4.frame as lz4
 
@@ -230,6 +361,12 @@ class NondeterminismException(Exception):
 
 
 def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; from pandas import Series as S, DataFrame as DF, Series as S
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,&#34;6&#34;,&#34;7&#34;], &#34;b&#34;: [&#34;1&#34;,&#34;2&#34;,&#34;3&#34;]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;]).to_numpy()
+    &gt;&gt;&gt; serialize_numpy(df, ensure_determinism=True, unsafe_fallback=True)
+    b&#39;05pckl_\\x80\\x05\\x95\\xa3\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x8c\\x15numpy.core.multiarray\\x94\\x8c\\x0c_reconstruct\\x94\\x93\\x94\\x8c\\x05numpy\\x94\\x8c\\x07ndarray\\x94\\x93\\x94K\\x00\\x85\\x94C\\x01b\\x94\\x87\\x94R\\x94(K\\x01K\\x03K\\x02\\x86\\x94h\\x03\\x8c\\x05dtype\\x94\\x93\\x94\\x8c\\x02O8\\x94\\x89\\x88\\x87\\x94R\\x94(K\\x03\\x8c\\x01|\\x94NNNJ\\xff\\xff\\xff\\xffJ\\xff\\xff\\xff\\xffK?t\\x94b\\x88]\\x94(\\x8c\\x015\\x94\\x8c\\x011\\x94\\x8c\\x016\\x94\\x8c\\x012\\x94\\x8c\\x017\\x94\\x8c\\x013\\x94et\\x94b.&#39;
+    &#34;&#34;&#34;
     import numpy as np
 
     if isinstance(obj, np.ndarray):
@@ -244,9 +381,9 @@ def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmp
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
         return prefix + header + obj.data.tobytes()
-    if unsafe_fallback:
+    if unsafe_fallback:  # pragma: no cover
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Please enable &#39;unsafe_fallback&#39;. Cannot handle this type &#39;{type(obj)}&#39;.&#34;)
+    raise Exception(f&#34;Please enable &#39;unsafe_fallback&#39;. Cannot handle this type &#39;{type(obj)}&#39;.&#34;)  # pragma: no cover
 
 
 def deserialize_numpy(blob):
@@ -448,17 +585,27 @@ def bytes2integers(bytes_content: bytes, n=4):
 <span>def <span class="ident">frompickle</span></span>(<span>blob)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; du = frompickle(b'05pckl_\x80\x05\x95#\x00\x00\x00\x00\x00\x00\x00}\x94\x8c\x01a\x94]\x94(K\x03\x8c\x08builtins\x94\x8c\x05print\x94\x93\x94es.')
+&gt;&gt;&gt; du[&quot;a&quot;][1]() is None
+&lt;BLANKLINE&gt;
+True
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def frompickle(blob):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; du = frompickle(b&#39;05pckl_\\x80\\x05\\x95#\\x00\\x00\\x00\\x00\\x00\\x00\\x00}\\x94\\x8c\\x01a\\x94]\\x94(K\\x03\\x8c\\x08builtins\\x94\\x8c\\x05print\\x94\\x93\\x94es.&#39;)
+    &gt;&gt;&gt; du[&#34;a&#34;][1]() is None
+    &lt;BLANKLINE&gt;
+    True
+    &#34;&#34;&#34;
     prefix = blob[:7]
     blob = blob[7:]
     if prefix == b&#34;05pckl_&#34;:
         return pickle.loads(blob)
-    elif prefix == b&#34;05dill_&#34;:
+    elif prefix == b&#34;05dill_&#34;:  # pragma: no cover
         import dill
 
         return dill.loads(blob)</code></pre>
@@ -482,13 +629,23 @@ def bytes2integers(bytes_content: bytes, n=4):
 <span>def <span class="ident">pack</span></span>(<span>obj, ensure_determinism, unsafe_fallback, compressed=True)</span>
 </code></dt>
 <dd>
-<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; import numpy as np
+<div class="desc"><p>Serialize 'obj' to bytes.</p>
+<p>Attempt to serialize using one of the following options, in this order:
+orjson
+bson
+bigints as str
+numpy ndarray as raw bytes
+pandas numeric Series/DataFrame as ndarray raw bytes
+pandas ill-behaved Series/DataFrame as parquet
+pickle when 'unsafe_fallback=True'
+dill when 'ensure_determinism=False'.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; import numpy as np
 &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&quot;x&quot;: b&quot;dsa&quot;}], [b&quot;asd&quot;, 5]]
 &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
 &gt;&gt;&gt; unpack(blob)
 [[array([[1.        , 0.66666667],
        [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
-&gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+&gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False, compressed=False)
 &gt;&gt;&gt; unpack(blob)
 [[array([[1.        , 0.66666667],
        [4.        , 5.        ]]), {'x': b'dsa'}], [b'asd', 5]]
@@ -498,6 +655,11 @@ def bytes2integers(bytes_content: bytes, n=4):
      0         1
 0  1.0  0.666667
 1  4.0  5.000000
+</code></pre>
+<pre><code class="language-python-repl">&gt;&gt;&gt; unpack(pack({&quot;0&quot;: 3, &quot;b&quot;: print}, ensure_determinism=True, unsafe_fallback=True, compressed=False))
+{'0': 3, 'b': &lt;built-in function print&gt;}
+&gt;&gt;&gt; unpack(pack({&quot;0&quot;: 3, &quot;b&quot;: b&quot;b&quot;}, ensure_determinism=True, unsafe_fallback=False, compressed=False))
+{'0': 3, 'b': b'b'}
 </code></pre></div>
 <details class="source">
 <summary>
@@ -505,13 +667,25 @@ def bytes2integers(bytes_content: bytes, n=4):
 </summary>
 <pre><code class="python">def pack(obj, ensure_determinism, unsafe_fallback, compressed=True):
     r&#34;&#34;&#34;
+    Serialize &#39;obj&#39; to bytes.
+
+    Attempt to serialize using one of the following options, in this order:
+        orjson
+        bson
+        bigints as str
+        numpy ndarray as raw bytes
+        pandas numeric Series/DataFrame as ndarray raw bytes
+        pandas ill-behaved Series/DataFrame as parquet
+        pickle when &#39;unsafe_fallback=True&#39;
+        dill when &#39;ensure_determinism=False&#39;.
+
     &gt;&gt;&gt; import numpy as np
     &gt;&gt;&gt; d = [[np.array([[1, 2/3], [4, 5]]), {&#34;x&#34;: b&#34;dsa&#34;}], [b&#34;asd&#34;, 5]]
     &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False)
     &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
-    &gt;&gt;&gt; blob = pack(d, compressed=False, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; blob = pack(d, ensure_determinism=True, unsafe_fallback=False, compressed=False)
     &gt;&gt;&gt; unpack(blob)
     [[array([[1.        , 0.66666667],
            [4.        , 5.        ]]), {&#39;x&#39;: b&#39;dsa&#39;}], [b&#39;asd&#39;, 5]]
@@ -521,6 +695,11 @@ def bytes2integers(bytes_content: bytes, n=4):
          0         1
     0  1.0  0.666667
     1  4.0  5.000000
+
+    &gt;&gt;&gt; unpack(pack({&#34;0&#34;: 3, &#34;b&#34;: print}, ensure_determinism=True, unsafe_fallback=True, compressed=False))
+    {&#39;0&#39;: 3, &#39;b&#39;: &lt;built-in function print&gt;}
+    &gt;&gt;&gt; unpack(pack({&#34;0&#34;: 3, &#34;b&#34;: b&#34;b&#34;}, ensure_determinism=True, unsafe_fallback=False, compressed=False))
+    {&#39;0&#39;: 3, &#39;b&#39;: b&#39;b&#39;}
     &#34;&#34;&#34;
     dump = traversal_enc(obj, ensure_determinism, unsafe_fallback)
     if compressed:
@@ -534,12 +713,22 @@ def bytes2integers(bytes_content: bytes, n=4):
 <span>def <span class="ident">serialize_numpy</span></span>(<span>obj, ensure_determinism, unsafe_fallback, prefix=b'00nmpy_')</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; from pandas import Series as S, DataFrame as DF, Series as S
+&gt;&gt;&gt; df = DF({&quot;a&quot;: [&quot;5&quot;,&quot;6&quot;,&quot;7&quot;], &quot;b&quot;: [&quot;1&quot;,&quot;2&quot;,&quot;3&quot;]}, index=[&quot;x&quot;,&quot;y&quot;,&quot;z&quot;]).to_numpy()
+&gt;&gt;&gt; serialize_numpy(df, ensure_determinism=True, unsafe_fallback=True)
+b'05pckl_\x80\x05\x95\xa3\x00\x00\x00\x00\x00\x00\x00\x8c\x15numpy.core.multiarray\x94\x8c\x0c_reconstruct\x94\x93\x94\x8c\x05numpy\x94\x8c\x07ndarray\x94\x93\x94K\x00\x85\x94C\x01b\x94\x87\x94R\x94(K\x01K\x03K\x02\x86\x94h\x03\x8c\x05dtype\x94\x93\x94\x8c\x02O8\x94\x89\x88\x87\x94R\x94(K\x03\x8c\x01|\x94NNNJ\xff\xff\xff\xffJ\xff\xff\xff\xffK?t\x94b\x88]\x94(\x8c\x015\x94\x8c\x011\x94\x8c\x016\x94\x8c\x012\x94\x8c\x017\x94\x8c\x013\x94et\x94b.'
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def serialize_numpy(obj, ensure_determinism, unsafe_fallback, prefix=b&#34;00nmpy_&#34;):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; from pandas import Series as S, DataFrame as DF, Series as S
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,&#34;6&#34;,&#34;7&#34;], &#34;b&#34;: [&#34;1&#34;,&#34;2&#34;,&#34;3&#34;]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;]).to_numpy()
+    &gt;&gt;&gt; serialize_numpy(df, ensure_determinism=True, unsafe_fallback=True)
+    b&#39;05pckl_\\x80\\x05\\x95\\xa3\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x8c\\x15numpy.core.multiarray\\x94\\x8c\\x0c_reconstruct\\x94\\x93\\x94\\x8c\\x05numpy\\x94\\x8c\\x07ndarray\\x94\\x93\\x94K\\x00\\x85\\x94C\\x01b\\x94\\x87\\x94R\\x94(K\\x01K\\x03K\\x02\\x86\\x94h\\x03\\x8c\\x05dtype\\x94\\x93\\x94\\x8c\\x02O8\\x94\\x89\\x88\\x87\\x94R\\x94(K\\x03\\x8c\\x01|\\x94NNNJ\\xff\\xff\\xff\\xffJ\\xff\\xff\\xff\\xffK?t\\x94b\\x88]\\x94(\\x8c\\x015\\x94\\x8c\\x011\\x94\\x8c\\x016\\x94\\x8c\\x012\\x94\\x8c\\x017\\x94\\x8c\\x013\\x94et\\x94b.&#39;
+    &#34;&#34;&#34;
     import numpy as np
 
     if isinstance(obj, np.ndarray):
@@ -554,18 +743,20 @@ def bytes2integers(bytes_content: bytes, n=4):
         header = rest_of_header_len + rest_of_header
         # return header + lz4.compress(ascontiguousarray(obj).data)
         return prefix + header + obj.data.tobytes()
-    if unsafe_fallback:
+    if unsafe_fallback:  # pragma: no cover
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Please enable &#39;unsafe_fallback&#39;. Cannot handle this type &#39;{type(obj)}&#39;.&#34;)</code></pre>
+    raise Exception(f&#34;Please enable &#39;unsafe_fallback&#39;. Cannot handle this type &#39;{type(obj)}&#39;.&#34;)  # pragma: no cover</code></pre>
 </details>
 </dd>
 <dt id="safeserializer.compression.topickle"><code class="name flex">
 <span>def <span class="ident">topickle</span></span>(<span>obj, ensure_determinism)</span>
 </code></dt>
 <dd>
-<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; du = topickle({&quot;a&quot;: [3, lambda :None]}, ensure_determinism=False)
+<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; f = print
+&gt;&gt;&gt; du = topickle({&quot;a&quot;: [3, f]}, ensure_determinism=False)
 &gt;&gt;&gt; res = frompickle(du)
 &gt;&gt;&gt; res[&quot;a&quot;][1]() is None
+&lt;BLANKLINE&gt;
 True
 &gt;&gt;&gt; frompickle(topickle({&quot;a&quot;: [3, None]}, ensure_determinism=True))
 {'a': [3, None]}
@@ -576,9 +767,11 @@ True
 </summary>
 <pre><code class="python">def topickle(obj, ensure_determinism):
     &#34;&#34;&#34;
-    &gt;&gt;&gt; du = topickle({&#34;a&#34;: [3, lambda :None]}, ensure_determinism=False)
+    &gt;&gt;&gt; f = print
+    &gt;&gt;&gt; du = topickle({&#34;a&#34;: [3, f]}, ensure_determinism=False)
     &gt;&gt;&gt; res = frompickle(du)
     &gt;&gt;&gt; res[&#34;a&#34;][1]() is None
+    &lt;BLANKLINE&gt;
     True
     &gt;&gt;&gt; frompickle(topickle({&#34;a&#34;: [3, None]}, ensure_determinism=True))
     {&#39;a&#39;: [3, None]}
@@ -586,8 +779,8 @@ True
     try:
         prefix = b&#34;05pckl_&#34;
         dump = pickle.dumps(obj, protocol=5)
-    except Exception as e:
-        if ensure_determinism:  # pragma: no cover
+    except Exception as e:  # pragma: no cover
+        if ensure_determinism:
             print(e)
             raise NondeterminismException(&#34;Cannot serialize deterministically.&#34;)
         import dill
@@ -595,8 +788,8 @@ True
         try:
             prefix = b&#34;05dill_&#34;
             dump = dill.dumps(obj, protocol=5)
-        except KeyError as e:  # pragma: no cover
-            if str(e) == &#34;&#39;__getstate__&#39;&#34;:  # pragma: no cover
+        except KeyError as e:
+            if str(e) == &#34;&#39;__getstate__&#39;&#34;:
                 raise Exception(&#34;Unpickable value:&#34;, type(obj))
             else:
                 raise e
@@ -625,56 +818,179 @@ True
             return int(blob.decode())
         if header == b&#34;nmpy_&#34;:
             return deserialize_numpy(blob)
-        if header == b&#34;pdsr_&#34;:
+        if header == b&#34;prqs_&#34;:
             import pandas as pd
             from io import BytesIO
 
-            return pd.read_orc(BytesIO(blob)).squeeze()
-        if header == b&#34;pddf_&#34;:
-            import pandas as pd
-            from io import BytesIO
-
-            return pd.read_orc(BytesIO(blob))
-        if header == b&#34;npsr_&#34;:
+            obj = pd.read_parquet(BytesIO(blob)).squeeze()
+            if obj.name == &#34;_none_&#34;:
+                obj.rename(None, inplace=True)
+            return obj
+        if header == b&#34;bsos_&#34;:
             from pandas import Series
 
-            return Series(deserialize_numpy(blob))
+            dec = bson.decode(blob)
+            obj = deserialize_numpy(dec[&#34;v&#34;])
+            kwargs = {&#34;name&#34;: dec[&#34;n&#34;]} if &#34;n&#34; in dec else {}
+            return Series(obj, dec[&#34;i&#34;], **kwargs)
+        if header == b&#34;prqd_&#34;:
+            import pandas as pd
+            from io import BytesIO
+
+            return pd.read_parquet(BytesIO(blob))
         if header == b&#34;npdf_&#34;:
             from pandas import DataFrame
 
             return DataFrame(deserialize_numpy(blob))
-        if header == b&#34;trav_&#34;:
+        if header == b&#34;list_&#34;:
             return traversal_dec(bson.decode(blob)[&#34;_&#34;])
+        if header == b&#34;tupl_&#34;:
+            return traversal_dec(tuple(bson.decode(blob)[&#34;_&#34;]))
+        if header == b&#34;dict_&#34;:
+            return traversal_dec(bson.decode(blob))
+        if header == b&#34;dicB_&#34;:
+            decoded = bson.decode(blob).items()
+            return {traversal_dec(unhexlify(k.encode(&#34;utf-8&#34;))): traversal_dec(v) for k, v in decoded}
         if header in [b&#34;pckl_&#34;, b&#34;dill_&#34;]:
             return frompickle(dump)
         return dump
-    if isinstance(dump, (int, str, bool)):
-        return dump
+    # if isinstance(dump, (int, str, bool)):
+    #     return dump
+    if isinstance(dump, tuple):
+        return tuple(traversal_dec(d) for d in dump)
     if isinstance(dump, list):
-        lst = []
-        for d in dump:
-            lst.append(traversal_dec(d))
-        return lst
+        return [traversal_dec(d) for d in dump]
     if isinstance(dump, dict):
-        dic = {}
-        for k, v in dump.items():
-            dic[k] = traversal_dec(v)
-        return dic
-    raise Exception(f&#34;Cannot unpack {type(dump)}.&#34;)</code></pre>
+        return {k: traversal_dec(v) for k, v in dump.items()}
+    raise Exception(f&#34;Cannot unpack {type(dump)}.&#34;)  # pragma: no cover</code></pre>
 </details>
 </dd>
 <dt id="safeserializer.compression.traversal_enc"><code class="name flex">
 <span>def <span class="ident">traversal_enc</span></span>(<span>obj, ensure_determinism, unsafe_fallback)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>TODO: Fix nested tuples being converted to lists by json?
+'tuple' should make orjson/bson raise an exception like it would happen for hditc,
+it would be easy to handle like with other non built-in types.</p>
+<pre><code class="language-python-repl">&gt;&gt;&gt; unpack(pack([&quot;a&quot;, [&quot;3&quot;, 4], &quot;b&quot;, 4], ensure_determinism=False, unsafe_fallback=False))
+['a', ['3', 4], 'b', 4]
+&gt;&gt;&gt; unpack(pack([{0: [{&quot;3&quot;:4}], &quot;b&quot;: b&quot;b&quot;}], ensure_determinism=False, unsafe_fallback=False))
+[{0: [{'3': 4}], 'b': b'b'}]
+&gt;&gt;&gt; du = pack(True, ensure_determinism=False, unsafe_fallback=True, compressed=False)
+&gt;&gt;&gt; du
+b'00json_true'
+&gt;&gt;&gt; unpack(du)
+True
+&gt;&gt;&gt; unpack(pack([True], ensure_determinism=False, unsafe_fallback=True, compressed=False))
+[True]
+&gt;&gt;&gt; unpack(pack([{&quot;a&quot;: b&quot;some bytes&quot;, &quot;b&quot;:print}], ensure_determinism=False, unsafe_fallback=True))[0][&quot;a&quot;]
+b'some bytes'
+&gt;&gt;&gt; unpack(pack(b&quot;some bytes&quot;, ensure_determinism=False, unsafe_fallback=True))
+b'some bytes'
+&gt;&gt;&gt; unpack(pack(99999999999999999999999999999999999999999, ensure_determinism=False, unsafe_fallback=True))
+99999999999999999999999999999999999999999
+&gt;&gt;&gt; from pandas import Series as S, DataFrame as DF
+&gt;&gt;&gt; s = S({&quot;a&quot;: 5, &quot;b&quot;: 6}, name=&quot;column&quot;)
+&gt;&gt;&gt; a = pack(s, ensure_determinism=True, unsafe_fallback=False)
+&gt;&gt;&gt; a  # doctest: +SKIP
+b'00lz4__\x04&quot;M\x18h@^\x00\x00\x00\x00\x00\x00\x00@\\\x00\x00\x00\xf1\x0e00bsos_W\x00\x00\x00\x04i\x00\x17\x00\x00\x00\x020\x00\x02\x00\x00\x00a\x00\x021\t\x00\xf0\nb\x00\x00\x05v\x00&quot;\x00\x00\x00\x0016\xc2\xa71\xc2\xa7int64\xc2\xa7&amp;\x00\x10\x05\x17\x00A\x00\x00\x00\x06\x06\x00\xf0\x02\x00\x00\x02n\x00\x07\x00\x00\x00column\x00\x00\x00\x00\x00\x00'
+&gt;&gt;&gt; unpack(a)
+a    5
+b    6
+Name: column, dtype: int64
+&gt;&gt;&gt; s = S({&quot;a&quot;: &quot;5&quot;, &quot;b&quot;: &quot;6&quot;})
+&gt;&gt;&gt; b = pack(s, ensure_determinism=True, unsafe_fallback=False)
+&gt;&gt;&gt; b
+b'00lz4__\x04&quot;M\x18h@\x1d\x08\x00\x00\x00\x00\x00\x00\xec\xe2\x04\x00\x00\xf0\x1100prqs_PAR1\x15\x04\x15\x14\x15\x18L\x15\x04\x15\x00\x12\x00\x00\n$\x01\x00\x00\x005\x05\x00\xf696\x15\x00\x15\x12\x15\x16,\x15\x04\x15\x10\x15\x06\x15\x06\x1c6\x00(\x016\x18\x015\x00\x00\x00\t \x02\x00\x00\x00\x04\x01\x01\x03\x02&amp;\x88\x01\x1c\x15\x0c\x195\x10\x00\x06\x19\x18\x06_none_\x15\x02\x16\x04\x16x\x16\x80\x01&amp;&lt;&amp;\x088\x00\x10\x19L\x00\x90\x00\x15\x02\x00\x15\x00\x15\x10\x15B\x00\x0f}\x00\x01\x10a}\x00\x1fb}\x00\x01Kb\x18\x01a}\x00&amp;\x82\x03}\x00\xf7\x02\x11__index_level_0_\x88\x00Q\xb6\x02&amp;\x82\x02\x8a\x00\x01E\x00\x0f\x8a\x00\x01\xf4\x04\x19&lt;5\x00\x18\x06schema\x15\x04\x00\x15\x0c%\x02\xd0\x00b%\x00L\x1c\x00\x00\x13\x00\x0ef\x00\x03\x1e\x00o\x16\x04\x19\x1c\x19,\x0f\x01*\x0f\xcf\x007\xf2\r\x16\xf0\x01\x16\x04&amp;\x08\x16\x80\x02\x14\x00\x00\x19,\x18\x06pandas\x18\xfc\x03{&quot;%\x01\xcdcolumns&quot;: [&quot;9\x01R&quot;], &quot;&quot;\x00\x02T\x01\x11e)\x00\xfa\x07{&quot;name&quot;: null, &quot;field_\x14\x00\x02i\x00@_typ)\x00\xf5\x02&quot;unicode&quot;, &quot;numpy\x19\x00`object\x18\x00\xf6\x12metadata&quot;: {&quot;encoding&quot;: &quot;UTF-8&quot;}}\x8d\x00\n\x86\x00\x12&quot;n\x02\x00D\x00\t\x8a\x00\x07\x18\x00\x0f\x8e\x00*\x00\xe6\x00?}, \xf6\x00\n\x0f&lt;\x01\x00\x0fw\x002\x01\xf4\x00areator\x18\x01plibrary\x17\x01ppyarrow\xf7\x00pversion\x16\x00\x8611.0.0&quot;}~\x00\x08\x1d\x00\xf2\x00.5.3&quot;}\x00\x18\x0cARROW:\xe6\x02@\x18\xe0\x07/\x01\x00\x82+ACAAAQA\x01\x00\xf1\x00KAA4ABgAFAAgACg\x15\x00)BB \x00\x10w\x15\x00\x15E \x00 DQ@\x00\x10E\x15\x00\x02F\x00\x01 \x00\x10I\x08\x00\x11B\x08\x00\x01E\x00\x10I \x00\x02%\x00\xf4FYAAABwYW5kYXMAAPwBAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\x00\xf0\x01lcyI6IFt7Im5hbWUD\x00\xf3\x15udWxsLCAiZmllbGRfbmFtZSI6IG51bGwsICJ\x90\x00aNfdHlw\x1c\x00\xf0\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\x00\xa2Aib2JqZWN0 \x00\xf0\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\x94\x00\xd9CJVVEYtOCJ9fV\xbc\x00\x10z0\x00EW3si\x98\x00\xbfCJfbm9uZV8i\xb8\x00\x02\x0b \x00\x88cGFuZGFz\x9c\x00\xb0dW5pY29kZSI\xe0\x00\xd0udW1weV90eXBlp\x00\xa1Im9iamVjdC \x00\xa5tZXRhZGF0Y\x18\x01@x9LC\x98\x01\x0fH\x01\x10TCJfX2\xc0\x01\xc1xldmVsXzBfXy\\\x00\x0f\\\x01&gt;\x80bnVsbH1d\x1c\x01\xf0\nY3JlYXRvciI6IHsibGlicmFye\xc8\x00\xb1CJweWFycm93\xa4\x01\xa1nZlcnNpb24\xc0\x01\xa1MTEuMC4wIn\x90\x01\x06\xa8\x00\x80mVyc2lvbT\x00\xb0CIxLjUuMyJ9\xc4\x02\x02\xcb\x02 BM\n\x00\x10B\x05\x00\xb1Mz///8AAAEF\xe0\x02\x11CK\x03\x01\x0b\x00\x01\x02\x00\x10B\x0b\x00\x1fB \x01\x03`wAAAMj@\x00@QABQ\x89\x03`GAAcAD9\x00\x17BE\x00!QUU\x00\x10H\x18\x00\x02e\x03\x01\x02\x00\x10B[\x03\x94F9ub25lXw3\x00\x01+\x00\x01\x02\x00\xf1\x00\x00\x18 parquet-cpp-9\x04\x13 \x19\x04\x12 3\x04P\x19,\x1c\x00\x00\xdf\x06\x80\x03\x07\x00\x00PAR1\x00\x00\x00\x00'
+&gt;&gt;&gt; unpack(b)
+a    5
+b    6
+dtype: object
+&gt;&gt;&gt; s = S({&quot;a&quot;: &quot;5&quot;, &quot;b&quot;: 6}, name=&quot;column&quot;)
+&gt;&gt;&gt; unpack(pack(s, ensure_determinism=True, unsafe_fallback=True))
+a    5
+b    6
+Name: column, dtype: object
+&gt;&gt;&gt; df = DF({&quot;a&quot;: [&quot;5&quot;,&quot;6&quot;,&quot;7&quot;], &quot;b&quot;: [1,2,3]}, index=[&quot;x&quot;,&quot;y&quot;,&quot;z&quot;])
+&gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
+   a  b
+x  5  1
+y  6  2
+z  7  3
+&gt;&gt;&gt; df = DF({&quot;a&quot;: [&quot;5&quot;,6,&quot;7&quot;], &quot;b&quot;: [&quot;1&quot;,&quot;2&quot;,&quot;3&quot;]}, index=[&quot;x&quot;,&quot;y&quot;,&quot;z&quot;])
+&gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=True))
+   a  b
+x  5  1
+y  6  2
+z  7  3
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def traversal_enc(obj, ensure_determinism, unsafe_fallback):
+    &#34;&#34;&#34;
+    TODO: Fix nested tuples being converted to lists by json?
+        &#39;tuple&#39; should make orjson/bson raise an exception like it would happen for hditc,
+        it would be easy to handle like with other non built-in types.
+    &gt;&gt;&gt; unpack(pack([&#34;a&#34;, [&#34;3&#34;, 4], &#34;b&#34;, 4], ensure_determinism=False, unsafe_fallback=False))
+    [&#39;a&#39;, [&#39;3&#39;, 4], &#39;b&#39;, 4]
+    &gt;&gt;&gt; unpack(pack([{0: [{&#34;3&#34;:4}], &#34;b&#34;: b&#34;b&#34;}], ensure_determinism=False, unsafe_fallback=False))
+    [{0: [{&#39;3&#39;: 4}], &#39;b&#39;: b&#39;b&#39;}]
+    &gt;&gt;&gt; du = pack(True, ensure_determinism=False, unsafe_fallback=True, compressed=False)
+    &gt;&gt;&gt; du
+    b&#39;00json_true&#39;
+    &gt;&gt;&gt; unpack(du)
+    True
+    &gt;&gt;&gt; unpack(pack([True], ensure_determinism=False, unsafe_fallback=True, compressed=False))
+    [True]
+    &gt;&gt;&gt; unpack(pack([{&#34;a&#34;: b&#34;some bytes&#34;, &#34;b&#34;:print}], ensure_determinism=False, unsafe_fallback=True))[0][&#34;a&#34;]
+    b&#39;some bytes&#39;
+    &gt;&gt;&gt; unpack(pack(b&#34;some bytes&#34;, ensure_determinism=False, unsafe_fallback=True))
+    b&#39;some bytes&#39;
+    &gt;&gt;&gt; unpack(pack(99999999999999999999999999999999999999999, ensure_determinism=False, unsafe_fallback=True))
+    99999999999999999999999999999999999999999
+    &gt;&gt;&gt; from pandas import Series as S, DataFrame as DF
+    &gt;&gt;&gt; s = S({&#34;a&#34;: 5, &#34;b&#34;: 6}, name=&#34;column&#34;)
+    &gt;&gt;&gt; a = pack(s, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; a  # doctest: +SKIP
+    b&#39;00lz4__\\x04&#34;M\\x18h@^\\x00\\x00\\x00\\x00\\x00\\x00\\x00@\\\\\\x00\\x00\\x00\\xf1\\x0e00bsos_W\\x00\\x00\\x00\\x04i\\x00\\x17\\x00\\x00\\x00\\x020\\x00\\x02\\x00\\x00\\x00a\\x00\\x021\\t\\x00\\xf0\\nb\\x00\\x00\\x05v\\x00&#34;\\x00\\x00\\x00\\x0016\\xc2\\xa71\\xc2\\xa7int64\\xc2\\xa7&amp;\\x00\\x10\\x05\\x17\\x00A\\x00\\x00\\x00\\x06\\x06\\x00\\xf0\\x02\\x00\\x00\\x02n\\x00\\x07\\x00\\x00\\x00column\\x00\\x00\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(a)
+    a    5
+    b    6
+    Name: column, dtype: int64
+    &gt;&gt;&gt; s = S({&#34;a&#34;: &#34;5&#34;, &#34;b&#34;: &#34;6&#34;})
+    &gt;&gt;&gt; b = pack(s, ensure_determinism=True, unsafe_fallback=False)
+    &gt;&gt;&gt; b
+    b&#39;00lz4__\\x04&#34;M\\x18h@\\x1d\\x08\\x00\\x00\\x00\\x00\\x00\\x00\\xec\\xe2\\x04\\x00\\x00\\xf0\\x1100prqs_PAR1\\x15\\x04\\x15\\x14\\x15\\x18L\\x15\\x04\\x15\\x00\\x12\\x00\\x00\\n$\\x01\\x00\\x00\\x005\\x05\\x00\\xf696\\x15\\x00\\x15\\x12\\x15\\x16,\\x15\\x04\\x15\\x10\\x15\\x06\\x15\\x06\\x1c6\\x00(\\x016\\x18\\x015\\x00\\x00\\x00\\t \\x02\\x00\\x00\\x00\\x04\\x01\\x01\\x03\\x02&amp;\\x88\\x01\\x1c\\x15\\x0c\\x195\\x10\\x00\\x06\\x19\\x18\\x06_none_\\x15\\x02\\x16\\x04\\x16x\\x16\\x80\\x01&amp;&lt;&amp;\\x088\\x00\\x10\\x19L\\x00\\x90\\x00\\x15\\x02\\x00\\x15\\x00\\x15\\x10\\x15B\\x00\\x0f}\\x00\\x01\\x10a}\\x00\\x1fb}\\x00\\x01Kb\\x18\\x01a}\\x00&amp;\\x82\\x03}\\x00\\xf7\\x02\\x11__index_level_0_\\x88\\x00Q\\xb6\\x02&amp;\\x82\\x02\\x8a\\x00\\x01E\\x00\\x0f\\x8a\\x00\\x01\\xf4\\x04\\x19&lt;5\\x00\\x18\\x06schema\\x15\\x04\\x00\\x15\\x0c%\\x02\\xd0\\x00b%\\x00L\\x1c\\x00\\x00\\x13\\x00\\x0ef\\x00\\x03\\x1e\\x00o\\x16\\x04\\x19\\x1c\\x19,\\x0f\\x01*\\x0f\\xcf\\x007\\xf2\\r\\x16\\xf0\\x01\\x16\\x04&amp;\\x08\\x16\\x80\\x02\\x14\\x00\\x00\\x19,\\x18\\x06pandas\\x18\\xfc\\x03{&#34;%\\x01\\xcdcolumns&#34;: [&#34;9\\x01R&#34;], &#34;&#34;\\x00\\x02T\\x01\\x11e)\\x00\\xfa\\x07{&#34;name&#34;: null, &#34;field_\\x14\\x00\\x02i\\x00@_typ)\\x00\\xf5\\x02&#34;unicode&#34;, &#34;numpy\\x19\\x00`object\\x18\\x00\\xf6\\x12metadata&#34;: {&#34;encoding&#34;: &#34;UTF-8&#34;}}\\x8d\\x00\\n\\x86\\x00\\x12&#34;n\\x02\\x00D\\x00\\t\\x8a\\x00\\x07\\x18\\x00\\x0f\\x8e\\x00*\\x00\\xe6\\x00?}, \\xf6\\x00\\n\\x0f&lt;\\x01\\x00\\x0fw\\x002\\x01\\xf4\\x00areator\\x18\\x01plibrary\\x17\\x01ppyarrow\\xf7\\x00pversion\\x16\\x00\\x8611.0.0&#34;}~\\x00\\x08\\x1d\\x00\\xf2\\x00.5.3&#34;}\\x00\\x18\\x0cARROW:\\xe6\\x02@\\x18\\xe0\\x07/\\x01\\x00\\x82+ACAAAQA\\x01\\x00\\xf1\\x00KAA4ABgAFAAgACg\\x15\\x00)BB \\x00\\x10w\\x15\\x00\\x15E \\x00 DQ@\\x00\\x10E\\x15\\x00\\x02F\\x00\\x01 \\x00\\x10I\\x08\\x00\\x11B\\x08\\x00\\x01E\\x00\\x10I \\x00\\x02%\\x00\\xf4FYAAABwYW5kYXMAAPwBAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\\x00\\xf0\\x01lcyI6IFt7Im5hbWUD\\x00\\xf3\\x15udWxsLCAiZmllbGRfbmFtZSI6IG51bGwsICJ\\x90\\x00aNfdHlw\\x1c\\x00\\xf0\\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\\x00\\xa2Aib2JqZWN0 \\x00\\xf0\\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\\x94\\x00\\xd9CJVVEYtOCJ9fV\\xbc\\x00\\x10z0\\x00EW3si\\x98\\x00\\xbfCJfbm9uZV8i\\xb8\\x00\\x02\\x0b \\x00\\x88cGFuZGFz\\x9c\\x00\\xb0dW5pY29kZSI\\xe0\\x00\\xd0udW1weV90eXBlp\\x00\\xa1Im9iamVjdC \\x00\\xa5tZXRhZGF0Y\\x18\\x01@x9LC\\x98\\x01\\x0fH\\x01\\x10TCJfX2\\xc0\\x01\\xc1xldmVsXzBfXy\\\\\\x00\\x0f\\\\\\x01&gt;\\x80bnVsbH1d\\x1c\\x01\\xf0\\nY3JlYXRvciI6IHsibGlicmFye\\xc8\\x00\\xb1CJweWFycm93\\xa4\\x01\\xa1nZlcnNpb24\\xc0\\x01\\xa1MTEuMC4wIn\\x90\\x01\\x06\\xa8\\x00\\x80mVyc2lvbT\\x00\\xb0CIxLjUuMyJ9\\xc4\\x02\\x02\\xcb\\x02 BM\\n\\x00\\x10B\\x05\\x00\\xb1Mz///8AAAEF\\xe0\\x02\\x11CK\\x03\\x01\\x0b\\x00\\x01\\x02\\x00\\x10B\\x0b\\x00\\x1fB \\x01\\x03`wAAAMj@\\x00@QABQ\\x89\\x03`GAAcAD9\\x00\\x17BE\\x00!QUU\\x00\\x10H\\x18\\x00\\x02e\\x03\\x01\\x02\\x00\\x10B[\\x03\\x94F9ub25lXw3\\x00\\x01+\\x00\\x01\\x02\\x00\\xf1\\x00\\x00\\x18 parquet-cpp-9\\x04\\x13 \\x19\\x04\\x12 3\\x04P\\x19,\\x1c\\x00\\x00\\xdf\\x06\\x80\\x03\\x07\\x00\\x00PAR1\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(b)
+    a    5
+    b    6
+    dtype: object
+    &gt;&gt;&gt; s = S({&#34;a&#34;: &#34;5&#34;, &#34;b&#34;: 6}, name=&#34;column&#34;)
+    &gt;&gt;&gt; unpack(pack(s, ensure_determinism=True, unsafe_fallback=True))
+    a    5
+    b    6
+    Name: column, dtype: object
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,&#34;6&#34;,&#34;7&#34;], &#34;b&#34;: [1,2,3]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;])
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=False))
+       a  b
+    x  5  1
+    y  6  2
+    z  7  3
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;,6,&#34;7&#34;], &#34;b&#34;: [&#34;1&#34;,&#34;2&#34;,&#34;3&#34;]}, index=[&#34;x&#34;,&#34;y&#34;,&#34;z&#34;])
+    &gt;&gt;&gt; unpack(pack(df, ensure_determinism=True, unsafe_fallback=True))
+       a  b
+    x  5  1
+    y  6  2
+    z  7  3
+    &#34;&#34;&#34;
     if isinstance(obj, bytes):
         return obj
+    if isinstance(obj, tuple):
+        lst_of_binaries = tuple(traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj)
+        return b&#34;00tupl_&#34; + bson.encode({&#34;_&#34;: lst_of_binaries})
+
     try:
         return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
@@ -686,47 +1002,99 @@ True
     except OverflowError as o:
         if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
             return b&#34;00bint_&#34; + str(obj).encode()
+
+    if isinstance(obj, list):
+        lst_of_binaries = [traversal_enc(o, ensure_determinism, unsafe_fallback) for o in obj]
+        return b&#34;00list_&#34; + bson.encode({&#34;_&#34;: lst_of_binaries})
+    elif isinstance(obj, dict):
+        dic_of_binaries = {}
+        hexfy = any(not isinstance(k, str) for k in obj.keys())
+        prefix = b&#34;00dicB_&#34; if hexfy else b&#34;00dict_&#34;
+        for k, o in obj.items():
+            if hexfy:
+                bk = traversal_enc(k, ensure_determinism, unsafe_fallback)
+                k = hexlify(bk).decode(&#34;utf-8&#34;)
+            dic_of_binaries[k] = traversal_enc(o, ensure_determinism, unsafe_fallback)
+        return prefix + bson.encode(dic_of_binaries)
+
     klass = str(obj.__class__)
     if klass in [&#34;&lt;class &#39;numpy.ndarray&#39;&gt;&#34;]:
         return serialize_numpy(obj, ensure_determinism, unsafe_fallback)
-    if klass == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
+    elif klass == &#34;&lt;class &#39;pandas.core.series.Series&#39;&gt;&#34;:
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;00npsr_&#34;)
+            idx = obj.index.values.tolist()
+            vals = serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;&#34;)
+            dic = {&#34;i&#34;: idx, &#34;v&#34;: vals}
+            if obj.name is not None:
+                dic[&#34;n&#34;] = obj.name
+            return b&#34;00bsos_&#34; + bson.encode(dic)
         except Exception as e:
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
+                from pandas import DataFrame
+
                 try:
-                    return b&#34;00pdsr_&#34; + obj.to_frame(&#34;0&#34;).to_orc()
-                except:
+                    return b&#34;00prqs_&#34; + obj.to_frame(obj.name or &#34;_none_&#34;).to_parquet()  # .convert_dtypes().to_parquet()
+                except Exception as e:
                     pass
     elif klass == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
         try:
-            return serialize_numpy(obj.to_numpy(), ensure_determinism, False, b&#34;00npdf_&#34;)
+            return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback=False, prefix=b&#34;00npdf_&#34;)
         except Exception as e:
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
                 try:
-                    return b&#34;00pddf_&#34; + obj.to_orc()
+                    return b&#34;00prqd_&#34; + obj.to_parquet()
                 except:
                     pass
-    elif isinstance(obj, list):
-        lst_of_bins = []
-        for o in obj:
-            lst_of_bins.append(traversal_enc(o, ensure_determinism, unsafe_fallback))
-        return b&#34;00trav_&#34; + bson.encode({&#34;_&#34;: lst_of_bins})
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Cannot pack {type(obj)}.&#34;)</code></pre>
+    raise Exception(f&#34;Cannot safely pack {type(obj)}.&#34;)  # pragma: no cover
+    # TODO: handle hdict?</code></pre>
 </details>
 </dd>
 <dt id="safeserializer.compression.unpack"><code class="name flex">
 <span>def <span class="ident">unpack</span></span>(<span>blob)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><pre><code class="language-python-repl">&gt;&gt;&gt; from pandas import DataFrame as DF
+&gt;&gt;&gt; df = DF({&quot;a&quot;: [&quot;5&quot;, &quot;6&quot;, &quot;7&quot;], &quot;b&quot;: [1, 2, 3]}, index=[&quot;x&quot;, &quot;y&quot;, &quot;z&quot;])
+&gt;&gt;&gt; complex_data = {&quot;a&quot;: b&quot;Some binary content&quot;, (&quot;mixed-types tuple as a key&quot;, 4): 123, &quot;df&quot;: df}
+&gt;&gt;&gt; complex_data
+{'a': b'Some binary content', ('mixed-types tuple as a key', 4): 123, 'df':    a  b
+x  5  1
+y  6  2
+z  7  3}
+&gt;&gt;&gt; dump = pack(complex_data, ensure_determinism=False, unsafe_fallback=False)
+&gt;&gt;&gt; dump
+b'00lz4__\x04&quot;M\x18h@h\x0b\x00\x00\x00\x00\x00\x00\x94\x95\x06\x00\x00\xf1*00dicB_a\x0b\x00\x00\x0530306a736f6e5f226122\x00\x13\x00\x00\x00\x00Some binary content.\x00\xd27475706c5f480\x01\x00b45f004\x0c\x00\x8000530002\x05\x00\x01\x02\x00\rb\x00\xf5\x07d697865642d74797065732X\x00`652061\x12\x00\xf4\x0461206b6579220531000r\x00\x0bV\x00\x113}\x00 \x00\n\xb8\x00\xa100json_123\xaf\x00\t\xdd\x00p46622\x00b(\x00\xf0\x1100prqd_PAR1\x15\x04\x15\x1e\x15&quot;L\x15\x06\x15\x00\x12\x00\x00\x0f8\x01\x00\x00\x005\x05\x00\x106\x05\x00\xf667\x15\x00\x15\x14\x15\x18,\x15\x06\x15\x10\x15\x06\x15\x06\x1c6\x00(\x017\x18\x015\x00\x00\x00\n$\x02\x00\x00\x00\x06\x01\x02\x03$\x00&amp;\x94\x01\x1c\x15\x0c\x195\x10\x00\x06\x19\x18\x01a\x15\x02\x16\x06\x16\x84\x01\x16\x8c\x01&amp;F&amp;\x085\x00\xe0\x19,\x15\x04\x15\x00\x15\x02\x00\x15\x00\x15\x10\x15?\x00d\x15\x04\x150\x15.\x7f\x00p\x18\x04\x01\x00\t\x01&lt;\x19\x00\x00\x02\x00\x10\x03\x05\x00 \x00\x00.\x00\t\x85\x00$\x18\x08\x1a\x00 \x18\x08\xa6\x00\x00\x02\x00?\x16\x00(\x16\x00\x00\x0c\xa7\x00T\xe2\x03\x1c\x15\x04\xa7\x00\x11b\xa7\x00\xbf\xda\x01\x16\xdc\x01&amp;\xd0\x02&amp;\x86\x02Y\x00\x19\x0f\xcb\x00\x02\rJ\x01\x10x\x9f\x00\x10y\x05\x00\x1fzJ\x01\x01Lz\x18\x01x\xa3\x00&amp;\xa8\x06J\x01\xf1\x03\x11__index_level_0__\xb3\x00\x02Z\x01Q\xda\x05&amp;\x9c\x05\x91\x01\x01G\x00\x0f\x91\x00\x01\xf0\x0b\x19L5\x00\x18\x06schema\x15\x06\x00\x15\x0c%\x02\x18\x01a%\x00L\x1cV\x01\x10\x04\x0e\x00\x12b\x16\x00\x0ej\x00\x03&amp;\x00o\x16\x06\x19\x1c\x19&lt;\xe0\x01&amp;\x0fr\x01J\x0f,\x018\xb0\x16\xe2\x03\x16\x06&amp;\x08\x16\xf4\x03\x14\xdc\x01\xd2\x18\x06pandas\x18\xd5\x04{&quot;\x83\x01\xcdcolumns&quot;: [&quot;\x97\x01R&quot;], &quot;&quot;\x00\x02\xb2\x01\x11e)\x00\xfa\x07{&quot;name&quot;: null, &quot;field_\x14\x00\x02i\x00@_typ)\x00\xf5\x02&quot;unicode&quot;, &quot;numpy\x19\x00`object\x18\x00\xf6\x12metadata&quot;: {&quot;encoding&quot;: &quot;UTF-8&quot;}}\x8d\x00\n\x86\x00 &quot;a?\x00\t\x85\x00\x02\x13\x00\x0f\x84\x00*\x00\xdc\x005}, \xec\x00.&quot;bf\x00\x01\x13\x00\x0bf\x00Pint64+\x00\n\xe8\x00\x05\x17\x00\x07\xe7\x00\x0cc\x00\x00\x10\x00\x0cO\x01\x0f\x95\x01\x00\x0et\x00\x0f^\x01\x1b\x00g\x00\x02M\x01areatorq\x01plibraryp\x01ppyarrow\xc4\x00pversion\x16\x00\x8611.0.0&quot;}~\x00\x08\x1d\x00\xf2\x00.5.3&quot;}\x00\x18\x0cARROW:\x9c\x03@\x18\x98\t/\x01\x00\x822gDAAAQA\x01\x00\xf1\x00KAA4ABgAFAAgACg\x15\x00)BB \x00\x10w\x15\x00\x15E \x002IwC\x10\x00\x04F\x00\x01 \x00\x10I\x08\x00\x11B\x08\x00\x01E\x00\x10I \x00\x10E\x05\x00\xf4GAYAAABwYW5kYXMAAFUCAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\x00\xf0\x01lcyI6IFt7Im5hbWUD\x00\xf0\x11udWxsLCAiZmllbGRfbmFtZSI6IG51bGwH\x00\x03\x90\x00aNfdHlw\x1c\x00\xf0\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\x00\xa2Aib2JqZWN0 \x00\xf0\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\x94\x00\xe0CJVVEYtOCJ9fV0t\x00\x04\xbc\x00\x10z0\x00EW3si\x98\x002CJhT\x00\x84ZpZWxkX2\xcc\x00PAiYSI&lt;\x00\x0f\xb0\x00&gt;\xa9bnVsbH0sIH\x88\x00\x1fi\x88\x00\x06\x1fi\x88\x00\x06qpbnQ2NC \x00\xd0udW1weV90eXBl\xe8\x00\x00\xe8\x01?dDY4\x01\x02\x0f\x84\x00\x02\x06\xa4\x01\xc2maWVsZF9uYW1L\x00\x0f\x1c\x02\x05\x00\xb0\x01\x97nBhbmRhc1|\x00PnVuaW\x94\x01 Ui\x10\x02xbnVtcHl\xf4\x01\x82vYmplY3Q \x00\xa5WV0YWRhdGEH\x02\x04\xbc\x01\x80cmVhdG9y\xd4\x00\xc0eyJsaWJyYXJ5\x10\x00\xb1InB5YXJyb3cH\x00\xf9\x0bdmVyc2lvbiI6ICIxMS4wLjAifS\xa8\x00\x912ZXJzaW9uD\x00\xa0jEuNS4zIn06\x03\x00\xa4\x03!Ah\n\x00\x01`\x03\x01K\x03PmP///\x0f\x00!QU\xc0\x03\x10J \x00\x05\xcb\x030AAE\x16\x00\x1fF$\x01\x03\x00 \x00\x01@\x00`8z///8\xc3\x03\x11CU\x00\x10BQ\x00\x11A\x0b\x00\x02\x02\x00\x00\x0b\x00 Bi\x0c\x00@CAAM\xd0\x03&quot;Bw\xd0\x03\x01\x02\x00\x11U\x06\x00\xc2QABQACAAGAAc\xad\x00\x12B:\x00\x01\x02\x00\x03\xa0\x00\x12G\r\x00\x01\x06\x00\x01\x02\x00\x00\xa0\x00\x10G`\x00\x00p\x001QAB\x15\x00\xf1\x02==\x00\x18 parquet-cpp-\xf1\x04\x13 \xd1\x04\x12 \xeb\x04R\x19&lt;\x1c\x00\x00\x03\x00\xa0\x00t\x08\x00\x00PAR1\x00\x00\x00\x00\x00'
+&gt;&gt;&gt; unpack(dump)
+{'a': b'Some binary content', ('mixed-types tuple as a key', 4): 123, 'df':    a  b
+x  5  1
+y  6  2
+z  7  3}
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def unpack(blob):
+    &#34;&#34;&#34;
+    &gt;&gt;&gt; from pandas import DataFrame as DF
+    &gt;&gt;&gt; df = DF({&#34;a&#34;: [&#34;5&#34;, &#34;6&#34;, &#34;7&#34;], &#34;b&#34;: [1, 2, 3]}, index=[&#34;x&#34;, &#34;y&#34;, &#34;z&#34;])
+    &gt;&gt;&gt; complex_data = {&#34;a&#34;: b&#34;Some binary content&#34;, (&#34;mixed-types tuple as a key&#34;, 4): 123, &#34;df&#34;: df}
+    &gt;&gt;&gt; complex_data
+    {&#39;a&#39;: b&#39;Some binary content&#39;, (&#39;mixed-types tuple as a key&#39;, 4): 123, &#39;df&#39;:    a  b
+    x  5  1
+    y  6  2
+    z  7  3}
+    &gt;&gt;&gt; dump = pack(complex_data, ensure_determinism=False, unsafe_fallback=False)
+    &gt;&gt;&gt; dump
+    b&#39;00lz4__\\x04&#34;M\\x18h@h\\x0b\\x00\\x00\\x00\\x00\\x00\\x00\\x94\\x95\\x06\\x00\\x00\\xf1*00dicB_a\\x0b\\x00\\x00\\x0530306a736f6e5f226122\\x00\\x13\\x00\\x00\\x00\\x00Some binary content.\\x00\\xd27475706c5f480\\x01\\x00b45f004\\x0c\\x00\\x8000530002\\x05\\x00\\x01\\x02\\x00\\rb\\x00\\xf5\\x07d697865642d74797065732X\\x00`652061\\x12\\x00\\xf4\\x0461206b6579220531000r\\x00\\x0bV\\x00\\x113}\\x00 \\x00\\n\\xb8\\x00\\xa100json_123\\xaf\\x00\\t\\xdd\\x00p46622\\x00b(\\x00\\xf0\\x1100prqd_PAR1\\x15\\x04\\x15\\x1e\\x15&#34;L\\x15\\x06\\x15\\x00\\x12\\x00\\x00\\x0f8\\x01\\x00\\x00\\x005\\x05\\x00\\x106\\x05\\x00\\xf667\\x15\\x00\\x15\\x14\\x15\\x18,\\x15\\x06\\x15\\x10\\x15\\x06\\x15\\x06\\x1c6\\x00(\\x017\\x18\\x015\\x00\\x00\\x00\\n$\\x02\\x00\\x00\\x00\\x06\\x01\\x02\\x03$\\x00&amp;\\x94\\x01\\x1c\\x15\\x0c\\x195\\x10\\x00\\x06\\x19\\x18\\x01a\\x15\\x02\\x16\\x06\\x16\\x84\\x01\\x16\\x8c\\x01&amp;F&amp;\\x085\\x00\\xe0\\x19,\\x15\\x04\\x15\\x00\\x15\\x02\\x00\\x15\\x00\\x15\\x10\\x15?\\x00d\\x15\\x04\\x150\\x15.\\x7f\\x00p\\x18\\x04\\x01\\x00\\t\\x01&lt;\\x19\\x00\\x00\\x02\\x00\\x10\\x03\\x05\\x00 \\x00\\x00.\\x00\\t\\x85\\x00$\\x18\\x08\\x1a\\x00 \\x18\\x08\\xa6\\x00\\x00\\x02\\x00?\\x16\\x00(\\x16\\x00\\x00\\x0c\\xa7\\x00T\\xe2\\x03\\x1c\\x15\\x04\\xa7\\x00\\x11b\\xa7\\x00\\xbf\\xda\\x01\\x16\\xdc\\x01&amp;\\xd0\\x02&amp;\\x86\\x02Y\\x00\\x19\\x0f\\xcb\\x00\\x02\\rJ\\x01\\x10x\\x9f\\x00\\x10y\\x05\\x00\\x1fzJ\\x01\\x01Lz\\x18\\x01x\\xa3\\x00&amp;\\xa8\\x06J\\x01\\xf1\\x03\\x11__index_level_0__\\xb3\\x00\\x02Z\\x01Q\\xda\\x05&amp;\\x9c\\x05\\x91\\x01\\x01G\\x00\\x0f\\x91\\x00\\x01\\xf0\\x0b\\x19L5\\x00\\x18\\x06schema\\x15\\x06\\x00\\x15\\x0c%\\x02\\x18\\x01a%\\x00L\\x1cV\\x01\\x10\\x04\\x0e\\x00\\x12b\\x16\\x00\\x0ej\\x00\\x03&amp;\\x00o\\x16\\x06\\x19\\x1c\\x19&lt;\\xe0\\x01&amp;\\x0fr\\x01J\\x0f,\\x018\\xb0\\x16\\xe2\\x03\\x16\\x06&amp;\\x08\\x16\\xf4\\x03\\x14\\xdc\\x01\\xd2\\x18\\x06pandas\\x18\\xd5\\x04{&#34;\\x83\\x01\\xcdcolumns&#34;: [&#34;\\x97\\x01R&#34;], &#34;&#34;\\x00\\x02\\xb2\\x01\\x11e)\\x00\\xfa\\x07{&#34;name&#34;: null, &#34;field_\\x14\\x00\\x02i\\x00@_typ)\\x00\\xf5\\x02&#34;unicode&#34;, &#34;numpy\\x19\\x00`object\\x18\\x00\\xf6\\x12metadata&#34;: {&#34;encoding&#34;: &#34;UTF-8&#34;}}\\x8d\\x00\\n\\x86\\x00 &#34;a?\\x00\\t\\x85\\x00\\x02\\x13\\x00\\x0f\\x84\\x00*\\x00\\xdc\\x005}, \\xec\\x00.&#34;bf\\x00\\x01\\x13\\x00\\x0bf\\x00Pint64+\\x00\\n\\xe8\\x00\\x05\\x17\\x00\\x07\\xe7\\x00\\x0cc\\x00\\x00\\x10\\x00\\x0cO\\x01\\x0f\\x95\\x01\\x00\\x0et\\x00\\x0f^\\x01\\x1b\\x00g\\x00\\x02M\\x01areatorq\\x01plibraryp\\x01ppyarrow\\xc4\\x00pversion\\x16\\x00\\x8611.0.0&#34;}~\\x00\\x08\\x1d\\x00\\xf2\\x00.5.3&#34;}\\x00\\x18\\x0cARROW:\\x9c\\x03@\\x18\\x98\\t/\\x01\\x00\\x822gDAAAQA\\x01\\x00\\xf1\\x00KAA4ABgAFAAgACg\\x15\\x00)BB \\x00\\x10w\\x15\\x00\\x15E \\x002IwC\\x10\\x00\\x04F\\x00\\x01 \\x00\\x10I\\x08\\x00\\x11B\\x08\\x00\\x01E\\x00\\x10I \\x00\\x10E\\x05\\x00\\xf4GAYAAABwYW5kYXMAAFUCAAB7ImluZGV4X2NvbHVtbnMiOiBbIl9faW5kZXhfbGV2ZWxfMF9fIl0sICJjb2x1bW5$\\x00\\xf0\\x01lcyI6IFt7Im5hbWUD\\x00\\xf0\\x11udWxsLCAiZmllbGRfbmFtZSI6IG51bGwH\\x00\\x03\\x90\\x00aNfdHlw\\x1c\\x00\\xf0\\x0eCJ1bmljb2RlIiwgIm51bXB5X3R5cGX\\x00\\xa2Aib2JqZWN0 \\x00\\xf0\\x0c1ldGFkYXRhIjogeyJlbmNvZGluZ\\x94\\x00\\xe0CJVVEYtOCJ9fV0t\\x00\\x04\\xbc\\x00\\x10z0\\x00EW3si\\x98\\x002CJhT\\x00\\x84ZpZWxkX2\\xcc\\x00PAiYSI&lt;\\x00\\x0f\\xb0\\x00&gt;\\xa9bnVsbH0sIH\\x88\\x00\\x1fi\\x88\\x00\\x06\\x1fi\\x88\\x00\\x06qpbnQ2NC \\x00\\xd0udW1weV90eXBl\\xe8\\x00\\x00\\xe8\\x01?dDY4\\x01\\x02\\x0f\\x84\\x00\\x02\\x06\\xa4\\x01\\xc2maWVsZF9uYW1L\\x00\\x0f\\x1c\\x02\\x05\\x00\\xb0\\x01\\x97nBhbmRhc1|\\x00PnVuaW\\x94\\x01 Ui\\x10\\x02xbnVtcHl\\xf4\\x01\\x82vYmplY3Q \\x00\\xa5WV0YWRhdGEH\\x02\\x04\\xbc\\x01\\x80cmVhdG9y\\xd4\\x00\\xc0eyJsaWJyYXJ5\\x10\\x00\\xb1InB5YXJyb3cH\\x00\\xf9\\x0bdmVyc2lvbiI6ICIxMS4wLjAifS\\xa8\\x00\\x912ZXJzaW9uD\\x00\\xa0jEuNS4zIn06\\x03\\x00\\xa4\\x03!Ah\\n\\x00\\x01`\\x03\\x01K\\x03PmP///\\x0f\\x00!QU\\xc0\\x03\\x10J \\x00\\x05\\xcb\\x030AAE\\x16\\x00\\x1fF$\\x01\\x03\\x00 \\x00\\x01@\\x00`8z///8\\xc3\\x03\\x11CU\\x00\\x10BQ\\x00\\x11A\\x0b\\x00\\x02\\x02\\x00\\x00\\x0b\\x00 Bi\\x0c\\x00@CAAM\\xd0\\x03&#34;Bw\\xd0\\x03\\x01\\x02\\x00\\x11U\\x06\\x00\\xc2QABQACAAGAAc\\xad\\x00\\x12B:\\x00\\x01\\x02\\x00\\x03\\xa0\\x00\\x12G\\r\\x00\\x01\\x06\\x00\\x01\\x02\\x00\\x00\\xa0\\x00\\x10G`\\x00\\x00p\\x001QAB\\x15\\x00\\xf1\\x02==\\x00\\x18 parquet-cpp-\\xf1\\x04\\x13 \\xd1\\x04\\x12 \\xeb\\x04R\\x19&lt;\\x1c\\x00\\x00\\x03\\x00\\xa0\\x00t\\x08\\x00\\x00PAR1\\x00\\x00\\x00\\x00\\x00&#39;
+    &gt;&gt;&gt; unpack(dump)
+    {&#39;a&#39;: b&#39;Some binary content&#39;, (&#39;mixed-types tuple as a key&#39;, 4): 123, &#39;df&#39;:    a  b
+    x  5  1
+    y  6  2
+    z  7  3}
+    &#34;&#34;&#34;
     if blob[:7] == b&#34;00lz4__&#34;:
         import lz4.frame as lz4
 

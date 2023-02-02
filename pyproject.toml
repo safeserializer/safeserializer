@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "safeserializer"
-version = "0.230202.0"
+version = "0.230202.1"
 description = "Hopefully safe and deterministic serializer to binary format, including Pandas data"
 authors = ["davips <dpsabc@gmail.com>"]
 license = "GPL"
