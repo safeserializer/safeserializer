@@ -161,6 +161,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     y  6  2
     z  7  3
     &#34;&#34;&#34;
+    error = None
     if isinstance(obj, bytes):
         return obj
     if isinstance(obj, tuple):
@@ -170,11 +171,11 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     try:
         return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
-        pass
+        error = str(e)
     try:
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
-        pass
+        error = str(e)
     except OverflowError as o:
         if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
             return b&#34;00bint_&#34; + str(obj).encode()
@@ -211,7 +212,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
                 try:
                     return b&#34;00prqs_&#34; + obj.to_frame(obj.name or &#34;_none_&#34;).to_parquet()  # .convert_dtypes().to_parquet()
                 except Exception as e:
-                    pass
+                    error = str(e)
     elif klass == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
         try:
             return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback=False, prefix=b&#34;00npdf_&#34;)
@@ -219,11 +220,11 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
                 try:
                     return b&#34;00prqd_&#34; + obj.to_parquet()
-                except:
-                    pass
+                except Exception as e:
+                    error = str(e)
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Cannot safely pack {type(obj)}.&#34;)  # pragma: no cover
+    raise Exception(f&#34;Cannot safely pack {type(obj)}: {error}&#34;)  # pragma: no cover
     # TODO: handle hdict?
 
 
@@ -985,6 +986,7 @@ z  7  3
     y  6  2
     z  7  3
     &#34;&#34;&#34;
+    error = None
     if isinstance(obj, bytes):
         return obj
     if isinstance(obj, tuple):
@@ -994,11 +996,11 @@ z  7  3
     try:
         return b&#34;00json_&#34; + orjson.dumps(obj)
     except TypeError as e:
-        pass
+        error = str(e)
     try:
         return b&#34;00bson_&#34; + bson.encode({&#34;_&#34;: obj})
     except InvalidDocument as e:
-        pass
+        error = str(e)
     except OverflowError as o:
         if &#34;8-byte ints&#34; in str(o) and isinstance(obj, int):
             return b&#34;00bint_&#34; + str(obj).encode()
@@ -1035,7 +1037,7 @@ z  7  3
                 try:
                     return b&#34;00prqs_&#34; + obj.to_frame(obj.name or &#34;_none_&#34;).to_parquet()  # .convert_dtypes().to_parquet()
                 except Exception as e:
-                    pass
+                    error = str(e)
     elif klass == &#34;&lt;class &#39;pandas.core.frame.DataFrame&#39;&gt;&#34;:
         try:
             return serialize_numpy(obj.to_numpy(), ensure_determinism, unsafe_fallback=False, prefix=b&#34;00npdf_&#34;)
@@ -1043,11 +1045,11 @@ z  7  3
             if str(e).startswith(&#34;Please enable &#39;unsafe_fallback&#39;&#34;):
                 try:
                     return b&#34;00prqd_&#34; + obj.to_parquet()
-                except:
-                    pass
+                except Exception as e:
+                    error = str(e)
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
-    raise Exception(f&#34;Cannot safely pack {type(obj)}.&#34;)  # pragma: no cover
+    raise Exception(f&#34;Cannot safely pack {type(obj)}: {error}&#34;)  # pragma: no cover
     # TODO: handle hdict?</code></pre>
 </details>
 </dd>
