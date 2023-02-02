@@ -45,7 +45,7 @@ poetry install
 ```
 
 ### Examples
-Some usage examples.
+<<basic>>
 
 
 
