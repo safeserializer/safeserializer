@@ -141,11 +141,11 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
 
     try:
         return b"00json_" + orjson.dumps(obj)
-    except TypeError as e:
+    except TypeError as error:
         pass
     try:
         return b"00bson_" + bson.encode({"_": obj})
-    except InvalidDocument as e:
+    except InvalidDocument as error:
         pass
     except OverflowError as o:
         if "8-byte ints" in str(o) and isinstance(obj, int):
@@ -182,7 +182,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
 
                 try:
                     return b"00prqs_" + obj.to_frame(obj.name or "_none_").to_parquet()  # .convert_dtypes().to_parquet()
-                except Exception as e:
+                except Exception as error:
                     pass
     elif klass == "<class 'pandas.core.frame.DataFrame'>":
         try:
@@ -191,11 +191,11 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
             if str(e).startswith("Please enable 'unsafe_fallback'"):
                 try:
                     return b"00prqd_" + obj.to_parquet()
-                except:
+                except Exception as error:
                     pass
     if unsafe_fallback:
         return topickle(obj, ensure_determinism)
-    raise Exception(f"Cannot safely pack {type(obj)}.")  # pragma: no cover
+    raise Exception(f"Cannot safely pack {type(obj)}: {error}")  # pragma: no cover
     # TODO: handle hdict?
 
 
