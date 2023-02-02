@@ -133,6 +133,7 @@ def traversal_enc(obj, ensure_determinism, unsafe_fallback):
     y  6  2
     z  7  3
     """
+    error = None
     if isinstance(obj, bytes):
         return obj
     if isinstance(obj, tuple):
@@ -364,7 +365,7 @@ def deserialize_numpy(blob):
     rest_of_header_len = blob[:10].split(b"\xc2\xa7")[0]
     first_len = len(rest_of_header_len)
     header_len = first_len + int(rest_of_header_len)
-    dims, dtype, hw = blob[first_len + 2 : header_len].split(b"\xc2\xa7")
+    dims, dtype, hw = blob[first_len + 2: header_len].split(b"\xc2\xa7")
     dims = int(dims.decode())
     dtype = dtype.decode().rstrip()
     shape = bytes2integers(hw.ljust(4 * dims))
@@ -384,8 +385,7 @@ def integers2bytes(lst, n=4) -> bytes:
 
 def bytes2integers(bytes_content: bytes, n=4):
     """Each 4 bytes become an int."""
-    return [int.from_bytes(bytes_content[i : i + n], "little") for i in range(0, len(bytes_content), n)]
-
+    return [int.from_bytes(bytes_content[i: i + n], "little") for i in range(0, len(bytes_content), n)]
 
 ########################################################################################
 ########################################################################################
