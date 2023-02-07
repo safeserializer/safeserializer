@@ -6,7 +6,7 @@
 ![Python version](https://img.shields.io/badge/python-3.10-blue.svg)
 [![license: GPL v3](https://img.shields.io/badge/License-GPLv3_%28ask_for_options%29-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![API documentation](https://img.shields.io/badge/doc-API%20%28auto%29-a0a0a0.svg)](https://safeserializer.github.io/safeserializer)
-
+[![Downloads](https://static.pepy.tech/badge/safeserializer)](https://pepy.tech/project/safeserializer)
 
 # safeserializer - Serialization of nested objects to binary format 
 An alternative to pickle, but may use pickle if safety is not needed.
